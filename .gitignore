@@ -1,0 +1,15 @@
+# Python virtual environment
+venv/
+.venv/
+
+# Pycache files
+__pycache__/
+*.pyc
+
+# Model checkpoints
+checkpoints/
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
