@@ -29,7 +29,6 @@ A production-grade, multi-modal autonomous mobile robot (AMR) navigation framewo
 - [Firmware Customization](#firmware-customization)
 - [Project Resources](#project-resources)
 - [Troubleshooting](#troubleshooting)
-- [License](#license)
 
 ---
 
