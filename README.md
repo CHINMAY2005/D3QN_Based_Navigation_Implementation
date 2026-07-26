@@ -422,6 +422,3 @@ To adapt the Arduino firmware to different physical robot configurations, modify
 
 ---
 
-## License
-
-This project is released under the [MIT License](LICENSE).
