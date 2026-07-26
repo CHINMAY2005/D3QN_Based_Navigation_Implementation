@@ -9,7 +9,8 @@ __pycache__/
 # Model checkpoints
 checkpoints/
 
-# IDE files
+# IDE & Local Compiled PDF files
 .vscode/
 .idea/
 .DS_Store
+Implementation.pdf

@@ -1,144 +1,106 @@
-# D3QN-Based Autonomous Robot Navigation System
+# VLA-Guarded D3QN Autonomous Mobile Robot Navigation System
 
-This project implements a complete, production-ready **Dueling Double Deep Q-Network (D3QN)** reinforcement learning system to navigate a 2D simulated robot in an obstacle course. 
+This project implements a complete, publication-ready **VLA-Guarded Dueling Double Deep Q-Network (VLA-D3QN)** reinforcement learning system to navigate a continuous 2D simulated robot equipped with a 24-beam radial LiDAR in an obstacle-cluttered environment.
 
-By combining a **Dueling Neural Network Architecture** (which evaluates the value of a state independent of individual action benefits) and **Double DQN target updates** (which decouple action selection from evaluation to mitigate value overestimation), the robot learns stable and efficient navigation policies.
+By combining an asynchronous **Vision-Language-Action (VLA) High-Level Guard**, a **Multi-Modal Feature Fusion Network**, a **Dueling Neural Network Architecture**, and **Double DQN target updates**, the robot bridges the **Semantic-Safety Gap** in discrete DRL, producing robust, semantically-aware, and collision-free navigation policies.
 
 ---
 
-## Project Workflow
+## 🌟 Key Features & Architectural Innovations
 
-The following flowchart outlines the reinforcement learning loop and interaction between the D3QN agent and the 2D simulation environment:
+1. **VLA Semantic Guarding**: Integrates high-level Vision-Language Model (VLM) behavioral tokens (`"OPEN_WAREHOUSE"`, `"CROWDED_ROOM"`, `"HAZARDOUS_ZONE"`) mapped into a continuous 64-dimensional modulation embedding vector $e_{\text{vla}}$.
+2. **Multi-Modal Feature Fusion**: Fuses 28-dimensional sensory features (24 LiDAR beams + 4 goal tracking/velocity features) with 64-dimensional VLA semantic embeddings into a joint 256-dimensional latent representation.
+3. **Conditioned Dueling Streams**:
+   - **Value Stream $V(s, e_{\text{vla}})$**: Depresses baseline state expectations in dangerous/hazardous rooms.
+   - **Advantage Stream $A(s, a, e_{\text{vla}})$**: Dynamically penalizes aggressive forward velocity primitives in crowded spaces.
+4. **Asynchronous Latency Caching**: Ensures zero-latency 50 Hz low-level control execution using cached VLA embeddings while high-level VLM vision reasoning runs asynchronously at 1–2 Hz.
+5. **Comparative Benchmarking**: Built-in side-by-side benchmarking script (`run_comparative_experiment.py`) comparing Baseline D3QN vs. VLA-Guarded D3QN under controlled random seeds.
+
+---
+
+## 🏗️ Project Architecture & Data Flow
 
 ```mermaid
 graph TD
-    %% Environment interaction
-    State[State Vector: LiDAR + Goal tracking] -->|Feedforward| Policy[Dueling DQN Network V & A]
-    Policy -->|Epsilon-Greedy Exploration| Action[Selected Action 0-4]
-    Action -->|Apply Velocities| Env[2D Simulation Dynamics]
-    
-    %% Env Calculations
-    Env -->|Raycasting intersection| LiDAR[24-Beam LiDAR distances]
-    Env -->|Kinematics update| DistGoal[Goal Tracking features]
-    Env -->|Compute shaped rewards| Reward[R_goal + R_collision + R_progress + R_smoothness]
-    
-    %% Agent Training
-    Reward & LiDAR & DistGoal -->|Transition Tuple| ReplayBuffer[(Experience Replay Buffer)]
-    ReplayBuffer -->|Sample Mini-batch| Train[Double DQN Loss Minimization]
-    Train -->|Optimize online weights| Adam[Adam Optimizer Step]
-    Adam -->|Soft Synchronization tau=0.005| TargetNet[Target Network V_target & A_target]
-    TargetNet -->|Calculate target Q-values| Train
-```
+    %% VLM Branch
+    subgraph VLA_Guard ["Asynchronous High-Level VLA Guard (1 - 2 Hz)"]
+        Camera[RGB Scene Context] --> VLM[Prismatic VLM / LLaVA-Phi]
+        VLM --> Token["Behavior Token ('CROWDED_ROOM', 'HAZARDOUS')"]
+        Token --> Bridge["The Bridge: Dense Vector e_vla in R^64"]
+    end
 
-### Key Mechanisms:
-1. **Dueling Architecture**: The network splits after a shared feature extractor into a state-value head $V(s)$ and action advantage head $A(s,a)$, combining them with:
-   $$Q(s, a) = V(s) + \left(A(s, a) - \frac{1}{|A|} \sum_{a'} A(s, a')\right)$$
-2. **Double Q-Target Calculation**: Decouples action selection from action evaluation to reduce value overestimations:
-   $$Y_t = r_t + \gamma \cdot Q_{\text{target}}\left(s_{t+1}, \arg\max_{a'} Q_{\text{online}}(s_{t+1}, a')\right)$$
-3. **Soft Network Synchronization**: Rather than hard copying weights every $N$ steps, target network weights are updated smoothly at each optimization step via:
-   $$\theta_{\text{target}} \leftarrow \tau \theta_{\text{online}} + (1 - \tau) \theta_{\text{target}} \quad (\text{with } \tau = 0.005)$$
+    %% Sensor Perception
+    subgraph Sensor_Perception ["Real-Time Perception (50 Hz)"]
+        LiDAR[24-Beam Radial LiDAR Raycasts] --> SensorState["State Vector s in R^28"]
+        Goal[Goal Distance, Heading, Velocities] --> SensorState
+    end
 
----
+    %% Low-Level Multi-Modal D3QN
+    subgraph D3QN_Policy ["Low-Level VLA-Guarded D3QN Policy (50 Hz)"]
+        SensorState --> SensorEncoder[Sensor Encoder 128-dim]
+        Bridge --> VLAEncoder[VLA Encoder 128-dim]
+        
+        SensorEncoder & VLAEncoder --> Concatenate[Combined Features 256-dim]
+        Concatenate --> FusionMLP["Joint Latent Vector z_fused in R^256"]
+        
+        FusionMLP --> ValueHead["State-Value V(s, e_vla)"]
+        FusionMLP --> AdvHead["Action Advantage A(s, a, e_vla)"]
+        
+        ValueHead & AdvHead --> Aggregation["Q(s, a; e_vla) = V + (A - mean A)"]
+    end
 
-## Project Structure
-
-```
-├── dueling_dqn.py      # Dueling DQN Neural Network Architecture
-├── agent.py            # D3QNAgent class (Replay memory, train step, sync mechanisms)
-├── environment.py      # 2D robot physics & LiDAR simulation environment
-├── train.py            # Training loop script (monitors metrics and saves weights)
-├── enjoy.py            # Evaluation script (runs policy and renders GIF animation)
-├── requirements.txt    # External dependencies file
-├── .gitignore          # Ignores local packages, pycache, and checkpoints
-└── README.md           # This project guide & analysis report
+    Aggregation --> Action["Action Primitive a_t in [a_0 .. a_4]"]
+    Action --> Env[2D Simulation Dynamics]
 ```
 
 ---
 
-## System Representation
+## 📁 Repository Structure
 
-### 1. State Space (28 Dimensions)
-A hybrid state vector containing:
-- **LiDAR Readings (24 dimensions)**: 24 radial rangefinder beams measuring distances to boundaries and circular obstacles (clamped to a max range of 3.0m).
-- **Goal Tracking Features (4 dimensions)**:
-  - `distance_to_goal` (meters)
-  - `heading_error_angle` (radians normalized in $[-\pi, \pi]$)
-  - `current_linear_velocity` (m/s)
-  - `current_angular_velocity` (rad/s)
-
-### 2. Action Space (5 Discrete Actions)
-Maps discrete network outputs to continuous velocity commands $[v \text{ (m/s)}, \omega \text{ (rad/s)}]$:
-* `0`: `[0.2, 0.0]` — Move Straight Fast
-* `1`: `[0.1, 0.3]` — Turn Left Soft
-* `2`: `[0.1, -0.3]` — Turn Right Soft
-* `3`: `[0.0, 0.5]` — Pivot Left Hard
-* `4`: `[0.0, -0.5]` — Pivot Right Hard
-
-### 3. Shaped Reward Function ($R$)
-Guides the agent during sparse-reward stages:
-$$R = R_{\text{goal}} + R_{\text{collision}} + R_{\text{progress}} + R_{\text{smoothness}}$$
-- **Goal Reward ($R_{\text{goal}}$)**: $+10.0$ if the robot reaches within 0.3m of the goal.
-- **Collision Reward ($R_{\text{collision}}$)**: $-10.0$ if any LiDAR beam distance $< 0.2$m or out-of-bounds.
-- **Progress Reward ($R_{\text{progress}}$)**: $5.0 \cdot (d_{t-1} - d_t)$ (rewards minimizing distance to the goal).
-- **Smoothness Reward ($R_{\text{smoothness}}$)**: $-0.05 \cdot |\omega|$ (penalizes erratic spinning).
+```
+├── dueling_dqn.py                  # VLAGuardedDuelingDQN PyTorch Model Architecture
+├── vla_guard.py                    # High-Level VLA Guard Simulation Module
+├── agent.py                        # VLA-Guarded D3QNAgent Class (Caching & Replay)
+├── environment.py                  # 2D Kinematics & 24-Beam LiDAR Simulation Environment
+├── train.py                        # Main VLA-Guarded D3QN Training Loop Script
+├── enjoy.py                        # Evaluation Script & Visual GIF Generator
+├── run_comparative_experiment.py   # Side-by-Side Benchmark Script (Baseline vs. VLA-Guarded)
+├── export_metrics.py               # Empirical Metric Telemetry CSV Export Script
+├── research_paper_details.md       # IEEE Research Paper Draft & Specifications Document
+├── requirements.txt                # Dependency File (torch, numpy, matplotlib, pillow)
+├── .gitignore                      # Git Ignore File (Ignores venv, pycache, checkpoints)
+└── README.md                       # Project Documentation Guide
+```
 
 ---
 
-## How to Implement Yourself
+## 🚀 How to Run & Reproduce
 
-Follow these steps to write and execute this system from scratch:
+### 1. Setup Environment
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
-### Step 1: Write the Neural Network (`dueling_dqn.py`)
-Create a network subclassing `torch.nn.Module`. In the constructor, define:
-- `self.feature_network`: shared layer extraction (`Linear(state_dim, 256) -> ReLU -> Linear(256, 256) -> ReLU`).
-- `self.value_stream`: state-value head (`Linear(256, 128) -> ReLU -> Linear(128, 1)`).
-- `self.advantage_stream`: action-advantage head (`Linear(256, 128) -> ReLU -> Linear(128, action_dim)`).
-In `forward(state)`, run features through both streams and aggregate them by subtracting the mean of the advantages.
+### 2. Train VLA-Guarded D3QN Model
+```bash
+python3 train.py
+```
 
-### Step 2: Implement the Agent (`agent.py`)
-Create `D3QNAgent` that:
-- Initializes `self.online_net` and `self.target_net`.
-- Implements `store_transition(state, action, reward, next_state, done)` into a `deque` replay memory.
-- Implements `select_action(state, evaluate=False)` with epsilon-greedy decay.
-- Implements `train_step()`: samples a mini-batch, computes online Q-values, uses Double DQN targets for target calculation, computes MSE loss, steps the optimizer, and runs a soft update of target weights.
+### 3. Evaluate Policy & Generate Navigation GIF
+```bash
+python3 enjoy.py
+```
+*Outputs an animated visualization GIF with live VLA Guard token overlays to `plots/vla_guarded_demo.gif`.*
 
-### Step 3: Implement the Environment (`environment.py`)
-Create a `RobotNavigationEnv` python class that:
-- Resets the robot $(x, y, \theta)$ and goal $(g_x, g_y)$ randomly in a safe region of a 10x10 space.
-- Calculates LiDAR beams using ray-circle intersections.
-- Calculates goal heading error and distance.
-- Updates kinetics in `.step(action)` with a time-step of 0.1s.
-- Checks termination criteria (Goal reached, Collision, or Timeout) and returns `(next_state, reward, done, info)`.
-
-### Step 4: Run Training (`train.py`)
-Set up a training loop that resets the environment at each episode, selects and steps actions, stores transitions, runs gradient descent steps, and periodically saves checkpoints (`checkpoints/best_model.pth`) and plots training curves (`plots/training_curves.png`).
-
-### Step 5: Evaluate and Render GIF (`enjoy.py`)
-Load the saved model weights, run it through the simulator for 5 episodes, and render matplotlib frames of the obstacles, robot, trajectory, and color-coded LiDAR rays. Save these frames into an animated GIF (`plots/navigation_demo.gif`) using the `Pillow` library.
+### 4. Run Side-by-Side Benchmark Experiment (Baseline D3QN vs. VLA-Guarded D3QN)
+```bash
+python3 run_comparative_experiment.py
+```
+*Outputs comparative plot (`plots/d3qn_vs_vla_guarded_comparison.png`) and per-episode telemetry (`plots/comparative_metrics.csv`).*
 
 ---
 
-## Trial Run Analysis & Outcomes
-
-### Training Convergence Analysis
-Below are the training metrics collected during our training runs:
-
-![Training Curves](plots/training_curves.png)
-
-1. **Episode Rewards**: As training progresses, the average rewards trend upwards. In the early stages, the robot receives negative rewards due to frequent collisions and random exploration. As the policy improves, the rewards stabilize in the positive zone as the robot regularly secures progress rewards and the goal reward ($+10.0$).
-2. **Success Rate**: The moving success rate (measured over a 50-episode sliding window) begins at 0% and climbs steadily. The agent shifts from colliding into walls and spinning in circles to actively planning paths towards the goal.
-3. **Training Loss**: The Mean Squared Error (MSE) loss spikes initially during random exploration (as high-magnitude rewards like collisions are first introduced) and then decreases and stabilizes, demonstrating that the network is successfully learning to predict action values.
-
-### Robot Navigation Demonstration
-Here is a visualization of the trained D3QN agent executing a trial run:
-
-![Robot Navigation Demo](plots/navigation_demo.gif)
-
-In the animation:
-- The **Blue circle** represents the robot, with the line indicating its heading.
-- The **Gray circles** are static obstacles.
-- The **Green star** is the target goal location.
-- The **Dashed black line** plots the robot's trajectory.
-- The **Faint colored lines** represent LiDAR beams (Red indicating close collision vectors, Yellow indicating cautious proximity, and Green indicating a clear path).
-
-Notice how the robot proactively steers away from obstacles (causing LiDAR lines to flash orange/red as it gets closer) and adjusts its heading error to move directly toward the goal star.
+## 📊 Telemetry & Research Paper Reference
+All mathematical MDP formulations, network conditioning equations, LaTeX formulas, academic citations (PaLM-E, RT-2, Prismatic VLMs, SayCan, Nature DQN), and Gemini prompts are compiled in [research_paper_details.md](file:///home/csi/Documents/VSC/PROJECTS/D3QN_Implementation/D3QN_Based_Navigation_Implementation/research_paper_details.md).
