@@ -103,4 +103,4 @@ python3 run_comparative_experiment.py
 ---
 
 ## 📊 Telemetry & Research Paper Reference
-All mathematical MDP formulations, network conditioning equations, LaTeX formulas, academic citations (PaLM-E, RT-2, Prismatic VLMs, SayCan, Nature DQN), and Gemini prompts are compiled in local manuscript workspace notes.
+All mathematical MDP formulations, network conditioning equations, LaTeX formulas, academic citations (PaLM-E, RT-2, Prismatic VLMs, SayCan, Nature DQN) are compiled in local manuscript workspace notes.
