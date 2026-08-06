@@ -1,7 +1,8 @@
 """
-Object-Aware VLA Vision Model Trainer (8 Classes, Excluding Glass & Mouse)
+Rigorous Multi-Origin Object-Aware VLA Vision Model Trainer
 
-Trains PyTorch ObjectAwareVLAVisionEncoder across 8 target physical obstacle classes:
+Trains PyTorch ObjectAwareVLAVisionEncoder with Color Jitter Augmentation and 5.0x Human Loss Penalty
+on the expanded multi-origin human dataset (220+ human samples) across 8 target classes:
 [human, wall, chair, door, mirror, shoe, phone, clear_path]
 """
 
@@ -14,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 # Set random seeds
 torch.manual_seed(42)
@@ -83,7 +84,7 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
         return object_logits, embedding
 
 
-class RealObjectDataset(torch.utils.data.Dataset):
+class DiverseHumanObjectDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir="Datasets/Object_Obstacles", target_size=(64, 64), augment=True):
         self.samples = []
         self.target_size = target_size
@@ -99,7 +100,7 @@ class RealObjectDataset(torch.utils.data.Dataset):
                 for fname in files:
                     self.samples.append((os.path.join(cls_dir, fname), class_id))
                     
-        print(f"Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (Glass & Mouse removed).")
+        print(f"Rigorous Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (220+ Human samples).")
 
     def __len__(self):
         return len(self.samples)
@@ -110,9 +111,17 @@ class RealObjectDataset(torch.utils.data.Dataset):
             img = Image.open(img_path).convert('RGB')
             img = img.resize(self.target_size)
             
-            if self.augment and random.random() > 0.5:
-                img = img.transpose(Image.FLIP_LEFT_RIGHT)
-                
+            # Online Augmentation: Color jitter, brightness & horizontal flips
+            if self.augment:
+                if random.random() > 0.5:
+                    img = img.transpose(Image.FLIP_LEFT_RIGHT)
+                if random.random() > 0.4:
+                    enh = ImageEnhance.Brightness(img)
+                    img = enh.enhance(random.uniform(0.7, 1.3))
+                if random.random() > 0.4:
+                    enh = ImageEnhance.Color(img)
+                    img = enh.enhance(random.uniform(0.7, 1.3))
+                    
             img_arr = np.array(img, dtype=np.float32) / 255.0
             img_arr = np.transpose(img_arr, (2, 0, 1))
             img_tensor = torch.tensor(img_arr, dtype=torch.float32)
@@ -123,11 +132,11 @@ class RealObjectDataset(torch.utils.data.Dataset):
             return blank_tensor, class_id
 
 
-def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
+def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
-    dataset = RealObjectDataset(augment=True)
+    dataset = DiverseHumanObjectDataset(augment=True)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -138,16 +147,16 @@ def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ObjectAwareVLAVisionEncoder(num_objects=len(OBJECT_CLASSES), semantic_dim=64).to(device)
     
-    # 3x Loss Weight Penalty for Human Class to ensure human detection priority
+    # 5.0x Loss Weight Penalty for Human Class to guarantee multi-origin human detection accuracy
     class_weights = torch.ones(len(OBJECT_CLASSES), dtype=torch.float32).to(device)
-    class_weights[0] = 3.0 # Class 0: Human
+    class_weights[0] = 5.0 # Class 0: Human
     
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     
-    print(f"\n--- Starting 8-Class Object Vision Encoder Training (Glass & Mouse Removed) ---", flush=True)
-    print(f"Human Loss Weight: 3.0x | Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}\n", flush=True)
+    print(f"\n--- Starting Rigorous PyTorch Human & Object Encoder Training on device: {device} ---", flush=True)
+    print(f"Human Safety Loss Penalty: 5.0x | Total Dataset: {len(dataset)} images\n", flush=True)
     
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -211,17 +220,17 @@ def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
             if val_acc >= best_val_acc:
                 best_val_acc = val_acc
                 torch.save(model.state_dict(), "checkpoints/object_vla_encoder.pth")
-                print(f"  -> Saved BEST 8-Class Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
+                print(f"  -> Saved BEST Multi-Origin Object VLA Encoder (Val Acc: {best_val_acc:.2%})", flush=True)
                 
     plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
-    print(f"\nTraining Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
+    print(f"\nRigorous Training Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
 
 def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
     
     axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
     axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
-    axes[0].set_title('8-Class Object Detection Loss (Glass & Mouse Excluded)', fontsize=11, fontweight='bold')
+    axes[0].set_title('Multi-Origin Human & Object Loss', fontsize=11, fontweight='bold')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Loss')
     axes[0].legend()
@@ -229,7 +238,7 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     
     axes[1].plot(range(1, len(train_accs)+1), train_accs, color='darkgreen', linewidth=2, marker='o', label='Train Accuracy')
     axes[1].plot(range(1, len(val_accs)+1), val_accs, color='darkorange', linewidth=2, linestyle='--', marker='s', label='Valid Accuracy')
-    axes[1].set_title('8-Class Object Identification Accuracy', fontsize=11, fontweight='bold')
+    axes[1].set_title('Multi-Origin Human Identification Accuracy', fontsize=11, fontweight='bold')
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Accuracy')
     axes[1].set_ylim(0.0, 1.05)
@@ -243,4 +252,4 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     print(f"Saved Object Detection curves plot to {plot_path}", flush=True)
 
 if __name__ == "__main__":
-    train_object_detector(epochs=15, batch_size=32)
+    train_rigorous_object_detector(epochs=20, batch_size=32)
