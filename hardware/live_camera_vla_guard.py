@@ -3,7 +3,7 @@ Live Camera Feed VLA Guard Pipeline for Physical Mobile Robot Navigation
 
 Runs on: Host Laptop / Jetson Nano / Raspberry Pi
 Functionality:
-1. Connects to live camera feed via OpenCV (USB Webcam / CSI Camera).
+1. Connects to live camera feed via OpenCV (USB Webcam / CSI Camera / Dataset Stream).
 2. Runs PyTorch VLAVisionEncoder (trained on MIT Indoor dataset weights: checkpoints/vla_vision_encoder.pth).
 3. Infers live semantic safety tokens (OPEN_WAREHOUSE, CROWDED_ROOM, HAZARDOUS_ZONE).
 4. Extracts 64-dimensional continuous modulation embedding vector e_vla.
@@ -13,6 +13,7 @@ Functionality:
 import sys
 import os
 import time
+import random
 import numpy as np
 import torch
 import cv2
@@ -31,7 +32,7 @@ class LiveCameraVLAGuardController:
         self.camera_id = camera_id
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        print(f"\n--- Initializing Live Camera VLA Guard Controller (Device: {self.device}) ---")
+        print(f"\n--- Initializing Live Camera VLA Guard Controller (Device: {self.device}) ---", flush=True)
         
         # 1. Initialize VLA Guard with trained vision encoder weights
         self.vla_guard = VLAGuard(semantic_dim=64, model_path=vision_model_path)
@@ -41,9 +42,9 @@ class LiveCameraVLAGuardController:
         if os.path.exists(model_path):
             try:
                 self.d3qn_policy.load_state_dict(torch.load(model_path, map_location=self.device), strict=False)
-                print(f"Loaded trained D3QN policy weights from {model_path}")
+                print(f"Loaded trained D3QN policy weights from {model_path}", flush=True)
             except Exception as e:
-                print(f"Warning loading D3QN weights ({e}). Running baseline policy.")
+                print(f"Warning loading D3QN weights ({e}). Running baseline policy.", flush=True)
         self.d3qn_policy.eval()
         
         # Action map: action_id -> [linear_v (m/s), angular_w (rad/s)]
@@ -54,37 +55,72 @@ class LiveCameraVLAGuardController:
             3: [0.00, 0.50],   # Pivot Left Hard
             4: [0.00, -0.50]   # Pivot Right Hard
         }
+        
+    def get_dataset_fallback_frames(self, dataset_dir="Datasets/MIT Indoor Scene Recognition.v5-resized416by416_70-20-10split.folder/valid", max_frames=60):
+        """Loads sample dataset images as fallback frames if no physical webcam is connected."""
+        frames = []
+        if os.path.exists(dataset_dir):
+            for sub in os.listdir(dataset_dir)[:15]:
+                sdir = os.path.join(dataset_dir, sub)
+                if os.path.isdir(sdir):
+                    files = [f for f in os.listdir(sdir) if f.lower().endswith(('.jpg', '.png'))]
+                    for f in files[:3]:
+                        img_path = os.path.join(sdir, f)
+                        frame_bgr = cv2.imread(img_path)
+                        if frame_bgr is not None:
+                            frame_bgr = cv2.resize(frame_bgr, (640, 480))
+                            frames.append((img_path, frame_bgr))
+        return frames[:max_frames]
 
-    def start_live_stream(self, show_window: bool = True, max_frames: int = 300):
+    def start_live_stream(self, show_window: bool = True, max_frames: int = 60, save_video: bool = True):
         """
-        Captures live video feed from camera, processes vision features through VLA Guard,
+        Captures live video feed from camera or dataset frames, processes vision features through VLA Guard,
         renders real-time HUD overlays, and computes D3QN velocity commands.
         """
         cap = cv2.VideoCapture(self.camera_id)
-        if not cap.isOpened():
-            print(f"Error: Could not open live camera video stream (Camera ID: {self.camera_id}).")
-            print("Note: If testing on a headless server or system without a camera, running dry-run mode.")
-            return
-
-        print(f"\nLive Camera Stream Started (Camera ID: {self.camera_id}). Press 'q' to exit.\n")
+        use_hardware_camera = cap.isOpened()
         
+        if not use_hardware_camera:
+            print(f"Notice: Physical camera hardware (Camera ID: {self.camera_id}) not detected.", flush=True)
+            print("Switching to Dataset Camera Feed Stream Mode (MIT Indoor Real Images)...", flush=True)
+            fallback_frames = self.get_dataset_fallback_frames()
+            if not fallback_frames:
+                print("No fallback frames found in Datasets directory.", flush=True)
+                return
+        else:
+            print(f"\nLive Hardware Camera Stream Started (Camera ID: {self.camera_id}).", flush=True)
+
+        print(f"\n--- Starting Real-Time OpenCV VLA Guard HUD Display ---", flush=True)
+        
+        video_writer = None
+        if save_video:
+            os.makedirs("plots", exist_ok=True)
+            video_path = os.path.join("plots", "live_vla_camera_hud.mp4")
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            video_writer = cv2.VideoWriter(video_path, fourcc, 10.0, (640, 480))
+
         frame_count = 0
         last_vla_update = 0.0
         cached_token = "CROWDED_ROOM"
         cached_emb = np.zeros(64, dtype=np.float32)
         
         try:
-            while cap.isOpened() and frame_count < max_frames:
-                ret, frame = cap.read()
-                if not ret:
-                    print("End of camera stream or failed frame capture.")
-                    break
+            total_loop_frames = max_frames if not use_hardware_camera else max_frames
+            
+            for f_idx in range(total_loop_frames):
+                if use_hardware_camera:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                else:
+                    _, frame = fallback_frames[f_idx % len(fallback_frames)]
+                    frame = frame.copy()
                     
                 frame_count += 1
                 curr_time = time.time()
                 
                 # Asynchronous VLA Vision Guard Execution (Run VLM vision inference at 2 Hz)
-                if curr_time - last_vla_update > 0.5:
+                if curr_time - last_vla_update > 0.3 or not use_hardware_camera:
                     # Convert BGR OpenCV frame to RGB PIL Image
                     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pil_img = Image.fromarray(rgb_frame)
@@ -106,36 +142,43 @@ class LiveCameraVLAGuardController:
                 
                 # Render HUD Overlay on Live Camera Frame
                 color_map = {
-                    "OPEN_WAREHOUSE": (0, 255, 0),     # Green
-                    "CROWDED_ROOM": (0, 255, 255),     # Yellow
+                    "OPEN_WAREHOUSE": (0, 255, 0),     # Green (BGR)
+                    "CROWDED_ROOM": (0, 215, 255),     # Yellow/Gold
                     "HAZARDOUS_ZONE": (0, 0, 255)      # Red
                 }
                 hud_color = color_map.get(cached_token, (255, 255, 255))
                 
-                # Draw Status Banners
-                cv2.rectangle(frame, (10, 10), (630, 90), (0, 0, 0), -1)
-                cv2.rectangle(frame, (10, 10), (630, 90), hud_color, 2)
+                # Draw Top Status Banner
+                cv2.rectangle(frame, (10, 10), (630, 95), (15, 15, 15), -1)
+                cv2.rectangle(frame, (10, 10), (630, 95), hud_color, 2)
                 
-                cv2.putText(frame, f"VLA GUARD TOKEN: [{cached_token}]", (20, 40),
+                cv2.putText(frame, f"VLA GUARD TOKEN: [{cached_token}]", (20, 42),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.75, hud_color, 2)
                 cv2.putText(frame, f"D3QN Action {action_id} -> Linear V: {v_cmd:.2f} m/s | Angular W: {w_cmd:.2f} rad/s", 
-                            (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+                            (20, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 1)
                             
-                if show_window:
+                if video_writer is not None:
+                    video_writer.write(frame)
+                    
+                if show_window and use_hardware_camera:
                     cv2.imshow("VLA-Guarded D3QN Live Camera Feed", frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        print("User closed live stream view.")
+                        print("User closed live stream view.", flush=True)
                         break
                         
-                print(f"Frame {frame_count:03d} | VLA Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s")
+                print(f"Frame {frame_count:03d}/{max_frames} | VLA Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
                 
         except Exception as e:
-            print(f"Error during live camera loop: {e}")
+            print(f"Error during live camera loop: {e}", flush=True)
         finally:
-            cap.release()
+            if cap is not None and cap.isOpened():
+                cap.release()
+            if video_writer is not None:
+                video_writer.release()
+                print(f"Saved real-time OpenCV HUD video output to: plots/live_vla_camera_hud.mp4", flush=True)
             cv2.destroyAllWindows()
-            print("Camera stream closed cleanly.")
+            print("Camera stream closed cleanly.", flush=True)
 
 if __name__ == "__main__":
     controller = LiveCameraVLAGuardController(camera_id=0)
-    controller.start_live_stream(show_window=False, max_frames=50)
+    controller.start_live_stream(show_window=True, max_frames=40, save_video=True)
