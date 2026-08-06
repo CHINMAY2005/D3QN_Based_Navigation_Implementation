@@ -32,7 +32,7 @@ class LiveCameraVLAGuardController:
         self.camera_id = camera_id
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        print(f"\n--- Initializing Live Camera VLA Guard Controller (Device: {self.device}) ---", flush=True)
+        print(f"\n--- Initializing Continuous Live Camera VLA Guard Controller (Device: {self.device}) ---", flush=True)
         
         # 1. Initialize VLA Guard with trained vision encoder weights
         self.vla_guard = VLAGuard(semantic_dim=64, model_path=vision_model_path)
@@ -56,11 +56,11 @@ class LiveCameraVLAGuardController:
             4: [0.00, -0.50]   # Pivot Right Hard
         }
         
-    def get_dataset_fallback_frames(self, dataset_dir="Datasets/MIT Indoor Scene Recognition.v5-resized416by416_70-20-10split.folder/valid", max_frames=60):
+    def get_dataset_fallback_frames(self, dataset_dir="Datasets/MIT Indoor Scene Recognition.v5-resized416by416_70-20-10split.folder/valid"):
         """Loads sample dataset images as fallback frames if no physical webcam is connected."""
         frames = []
         if os.path.exists(dataset_dir):
-            for sub in os.listdir(dataset_dir)[:15]:
+            for sub in os.listdir(dataset_dir)[:20]:
                 sdir = os.path.join(dataset_dir, sub)
                 if os.path.isdir(sdir):
                     files = [f for f in os.listdir(sdir) if f.lower().endswith(('.jpg', '.png'))]
@@ -70,19 +70,20 @@ class LiveCameraVLAGuardController:
                         if frame_bgr is not None:
                             frame_bgr = cv2.resize(frame_bgr, (640, 480))
                             frames.append((img_path, frame_bgr))
-        return frames[:max_frames]
+        return frames
 
-    def start_live_stream(self, show_window: bool = True, max_frames: int = 60, save_video: bool = True):
+    def start_live_stream(self, show_window: bool = True, max_frames: int = None, save_video: bool = True):
         """
-        Captures live video feed from camera or dataset frames, processes vision features through VLA Guard,
+        Captures live continuous video feed from camera or dataset frames, processes vision features through VLA Guard,
         renders real-time HUD overlays, and computes D3QN velocity commands.
+        Runs continuously until 'q' key or Ctrl+C is pressed.
         """
         cap = cv2.VideoCapture(self.camera_id)
         use_hardware_camera = cap.isOpened()
         
         if not use_hardware_camera:
             print(f"Notice: Physical camera hardware (Camera ID: {self.camera_id}) not detected.", flush=True)
-            print("Switching to Dataset Camera Feed Stream Mode (MIT Indoor Real Images)...", flush=True)
+            print("Switching to Continuous Dataset Camera Feed Stream Mode (MIT Indoor Real Images)...", flush=True)
             fallback_frames = self.get_dataset_fallback_frames()
             if not fallback_frames:
                 print("No fallback frames found in Datasets directory.", flush=True)
@@ -90,7 +91,7 @@ class LiveCameraVLAGuardController:
         else:
             print(f"\nLive Hardware Camera Stream Started (Camera ID: {self.camera_id}).", flush=True)
 
-        print(f"\n--- Starting Real-Time OpenCV VLA Guard HUD Display ---", flush=True)
+        print(f"\n--- Running CONTINUOUS Real-Time OpenCV VLA Guard HUD Stream (Press 'q' or Ctrl+C to exit) ---", flush=True)
         
         video_writer = None
         if save_video:
@@ -105,15 +106,17 @@ class LiveCameraVLAGuardController:
         cached_emb = np.zeros(64, dtype=np.float32)
         
         try:
-            total_loop_frames = max_frames if not use_hardware_camera else max_frames
-            
-            for f_idx in range(total_loop_frames):
+            while True:
+                if max_frames is not None and frame_count >= max_frames:
+                    break
+                    
                 if use_hardware_camera:
                     ret, frame = cap.read()
                     if not ret:
+                        print("End of camera stream or lost connection.", flush=True)
                         break
                 else:
-                    _, frame = fallback_frames[f_idx % len(fallback_frames)]
+                    _, frame = fallback_frames[frame_count % len(fallback_frames)]
                     frame = frame.copy()
                     
                 frame_count += 1
@@ -161,15 +164,20 @@ class LiveCameraVLAGuardController:
                     video_writer.write(frame)
                     
                 if show_window and use_hardware_camera:
-                    cv2.imshow("VLA-Guarded D3QN Live Camera Feed", frame)
+                    cv2.imshow("VLA-Guarded D3QN Continuous Live Camera Feed", frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        print("User closed live stream view.", flush=True)
+                        print("User stopped continuous live stream.", flush=True)
                         break
                         
-                print(f"Frame {frame_count:03d}/{max_frames} | VLA Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
+                print(f"Frame {frame_count:04d} | VLA Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
                 
+                if not use_hardware_camera:
+                    time.sleep(0.1) # 10 FPS rate control in dataset simulation mode
+                
+        except KeyboardInterrupt:
+            print("\nContinuous Live Camera Feed Stopped by User (Ctrl+C).", flush=True)
         except Exception as e:
-            print(f"Error during live camera loop: {e}", flush=True)
+            print(f"Error during continuous live camera loop: {e}", flush=True)
         finally:
             if cap is not None and cap.isOpened():
                 cap.release()
@@ -181,4 +189,5 @@ class LiveCameraVLAGuardController:
 
 if __name__ == "__main__":
     controller = LiveCameraVLAGuardController(camera_id=0)
-    controller.start_live_stream(show_window=True, max_frames=40, save_video=True)
+    # Set max_frames=None for continuous infinite execution until 'q' or Ctrl+C is pressed
+    controller.start_live_stream(show_window=True, max_frames=None, save_video=True)
