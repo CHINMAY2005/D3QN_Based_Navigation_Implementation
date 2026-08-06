@@ -9,11 +9,11 @@ class VLAGuard:
     High-Level Vision-Language-Action (VLA) Guard with Hybrid Human Detection Prior.
     
     1. Uses OpenCV Haar Cascade Face/Body Detector to guarantee high-confidence 
-       detection of real humans (eliminates misclassifying humans as mouse/glass).
-    2. Runs PyTorch ObjectAwareVLAVisionEncoder for 10-class object identification:
-       [human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path]
+       detection of real humans.
+    2. Runs PyTorch ObjectAwareVLAVisionEncoder for 9-class object identification:
+       [human, wall, chair, door, mirror, shoe, phone, mouse, clear_path]
     3. Maps detected objects to VLA Safety Tokens:
-       - human, glass, mirror -> HAZARDOUS_ZONE
+       - human, mirror -> HAZARDOUS_ZONE
        - wall, chair, shoe, phone, mouse -> CROWDED_ROOM
        - door, clear_path -> OPEN_WAREHOUSE
     """
@@ -31,14 +31,14 @@ class VLAGuard:
             2: "HAZARDOUS_ZONE"
         }
         
+        # 9 Target Classes (Glass removed)
         self.object_classes = [
             "human", "wall", "chair", "door", "mirror",
-            "glass", "shoe", "phone", "mouse", "clear_path"
+            "shoe", "phone", "mouse", "clear_path"
         ]
         
         self.class_to_token = {
             "human": "HAZARDOUS_ZONE",
-            "glass": "HAZARDOUS_ZONE",
             "mirror": "HAZARDOUS_ZONE",
             "wall": "CROWDED_ROOM",
             "chair": "CROWDED_ROOM",
@@ -60,7 +60,7 @@ class VLAGuard:
         self.vision_model = None
         self.object_model = None
         
-        # Load OpenCV Haar Cascades for reliable Human Detection
+        # Load OpenCV Haar Cascades for Human Detection Prior
         self.face_cascade = None
         try:
             cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
@@ -69,14 +69,14 @@ class VLAGuard:
         except Exception:
             self.face_cascade = None
             
-        # Load Object Vision Encoder if available
+        # Load Object Vision Encoder (9 classes) if available
         if os.path.exists(self.object_model_path):
             try:
                 from train_object_detector import ObjectAwareVLAVisionEncoder
                 self.object_model = ObjectAwareVLAVisionEncoder(num_objects=len(self.object_classes), semantic_dim=semantic_dim).to(self.device)
                 self.object_model.load_state_dict(torch.load(self.object_model_path, map_location=self.device))
                 self.object_model.eval()
-                print(f"VLAGuard: Successfully loaded Object Vision Encoder from {self.object_model_path}")
+                print(f"VLAGuard: Successfully loaded 9-Class Object Vision Encoder from {self.object_model_path}")
             except Exception as e:
                 print(f"VLAGuard: Object Model note ({e})")
                 self.object_model = None
@@ -105,7 +105,7 @@ class VLAGuard:
 
     def detect_objects_and_get_context(self, image_path_or_pil) -> tuple:
         """
-        Detects physical objects in image with Human Prior check:
+        Detects physical objects in image across 9 target classes (Glass removed).
         Returns: (detected_object_name, vla_token_string, continuous_embedding_vector_64dim).
         """
         if isinstance(image_path_or_pil, str):
@@ -122,7 +122,7 @@ class VLAGuard:
             emb_np = self.fallback_embeddings["HAZARDOUS_ZONE"]
             return obj_name, token_str, emb_np
             
-        # 2. PyTorch Object Detection Model Inference
+        # 2. PyTorch 9-Class Object Detection Model Inference
         img_resized = pil_img.resize((64, 64))
         img_arr = np.array(img_resized, dtype=np.float32) / 255.0
         img_arr = np.transpose(img_arr, (2, 0, 1))
@@ -132,20 +132,16 @@ class VLAGuard:
         if self.object_model is not None:
             with torch.no_grad():
                 logits, embedding = self.object_model(img_tensor)
-                
-                # Prevent misclassifying ambiguous frames as mouse/glass if probability is low
                 probs = torch.softmax(logits, dim=1).squeeze(0)
                 pred_idx = torch.argmax(probs).item()
                 obj_name = self.object_classes[pred_idx]
                 
-                # If predicted mouse/glass but human features/warm tones dominate, default to human
-                if obj_name in ["mouse", "glass"]:
-                    # Compute warm color ratio (red/skin tone channels)
+                # Warm-tone human fallback guard
+                if obj_name in ["mouse", "shoe"]:
                     r_channel = img_arr[0]
-                    g_channel = img_arr[1]
                     b_channel = img_arr[2]
                     warmth = np.mean(r_channel) - np.mean(b_channel)
-                    if warmth > 0.15: # Human skin / warm tone signature
+                    if warmth > 0.18:
                         obj_name = "human"
                         
                 token_str = self.class_to_token.get(obj_name, "CROWDED_ROOM")
