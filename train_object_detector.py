@@ -2,7 +2,7 @@
 Rigorous Multi-Origin Object-Aware VLA Vision Model Trainer
 
 Trains PyTorch ObjectAwareVLAVisionEncoder with Color Jitter Augmentation and 5.0x Human Loss Penalty
-on the expanded multi-origin human dataset (220+ human samples) across 8 target classes:
+on the expanded dataset (220+ Human, 220+ Phone, 850+ total samples) across 8 target classes:
 [human, wall, chair, door, mirror, shoe, phone, clear_path]
 """
 
@@ -84,7 +84,7 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
         return object_logits, embedding
 
 
-class DiverseHumanObjectDataset(torch.utils.data.Dataset):
+class DiverseHumanPhoneObjectDataset(torch.utils.data.Dataset):
     def __init__(self, root_dir="Datasets/Object_Obstacles", target_size=(64, 64), augment=True):
         self.samples = []
         self.target_size = target_size
@@ -100,7 +100,7 @@ class DiverseHumanObjectDataset(torch.utils.data.Dataset):
                 for fname in files:
                     self.samples.append((os.path.join(cls_dir, fname), class_id))
                     
-        print(f"Rigorous Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (220+ Human samples).")
+        print(f"Rigorous Multi-Object Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (220+ Human, 220+ Phone samples).")
 
     def __len__(self):
         return len(self.samples)
@@ -111,7 +111,6 @@ class DiverseHumanObjectDataset(torch.utils.data.Dataset):
             img = Image.open(img_path).convert('RGB')
             img = img.resize(self.target_size)
             
-            # Online Augmentation: Color jitter, brightness & horizontal flips
             if self.augment:
                 if random.random() > 0.5:
                     img = img.transpose(Image.FLIP_LEFT_RIGHT)
@@ -136,7 +135,7 @@ def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
-    dataset = DiverseHumanObjectDataset(augment=True)
+    dataset = DiverseHumanPhoneObjectDataset(augment=True)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -147,16 +146,16 @@ def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ObjectAwareVLAVisionEncoder(num_objects=len(OBJECT_CLASSES), semantic_dim=64).to(device)
     
-    # 5.0x Loss Weight Penalty for Human Class to guarantee multi-origin human detection accuracy
     class_weights = torch.ones(len(OBJECT_CLASSES), dtype=torch.float32).to(device)
-    class_weights[0] = 5.0 # Class 0: Human
+    class_weights[0] = 5.0 # Class 0: Human (5x Loss Weight Penalty)
+    class_weights[6] = 2.0 # Class 6: Phone (2x Loss Weight Penalty)
     
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     
-    print(f"\n--- Starting Rigorous PyTorch Human & Object Encoder Training on device: {device} ---", flush=True)
-    print(f"Human Safety Loss Penalty: 5.0x | Total Dataset: {len(dataset)} images\n", flush=True)
+    print(f"\n--- Starting Rigorous PyTorch Human & Mobile Phone Vision Training on device: {device} ---", flush=True)
+    print(f"Dataset Size: {len(dataset)} images | Human Penalty: 5x | Phone Penalty: 2x\n", flush=True)
     
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -220,7 +219,7 @@ def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
             if val_acc >= best_val_acc:
                 best_val_acc = val_acc
                 torch.save(model.state_dict(), "checkpoints/object_vla_encoder.pth")
-                print(f"  -> Saved BEST Multi-Origin Object VLA Encoder (Val Acc: {best_val_acc:.2%})", flush=True)
+                print(f"  -> Saved BEST Object VLA Encoder (Val Acc: {best_val_acc:.2%})", flush=True)
                 
     plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
     print(f"\nRigorous Training Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
@@ -230,7 +229,7 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     
     axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
     axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
-    axes[0].set_title('Multi-Origin Human & Object Loss', fontsize=11, fontweight='bold')
+    axes[0].set_title('Human & Mobile Phone Vision Model Loss', fontsize=11, fontweight='bold')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Loss')
     axes[0].legend()
@@ -238,7 +237,7 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     
     axes[1].plot(range(1, len(train_accs)+1), train_accs, color='darkgreen', linewidth=2, marker='o', label='Train Accuracy')
     axes[1].plot(range(1, len(val_accs)+1), val_accs, color='darkorange', linewidth=2, linestyle='--', marker='s', label='Valid Accuracy')
-    axes[1].set_title('Multi-Origin Human Identification Accuracy', fontsize=11, fontweight='bold')
+    axes[1].set_title('Human & Mobile Phone Identification Accuracy', fontsize=11, fontweight='bold')
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Accuracy')
     axes[1].set_ylim(0.0, 1.05)
