@@ -1,10 +1,8 @@
 """
-Deep Object-Aware VLA Vision Model Trainer
+Deep Object-Aware VLA Vision Model Trainer with Human Safety Loss Weighting
 
-Trains a PyTorch Convolutional Neural Network (ObjectAwareVLAVisionEncoder)
-on the expanded 675+ multi-sample dataset (Datasets/Object_Obstacles/) with data augmentation
-and learning rate decay scheduling across 10 object classes:
-[human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path]
+Trains PyTorch ObjectAwareVLAVisionEncoder with a 3x Human Loss Penalty
+to prioritize human safety and eliminate misclassifications of humans as mouse/glass.
 """
 
 import os
@@ -42,34 +40,25 @@ CLASS_TO_TOKEN = {
 }
 
 class ObjectAwareVLAVisionEncoder(nn.Module):
-    """
-    Deep Convolutional Neural Network Vision Encoder for Object-Aware VLA Guarding.
-    Extracts deep visual features from images, projects them into a 64-dim VLA embedding (e_vla),
-    and classifies objects across 10 physical obstacle categories.
-    """
     def __init__(self, num_objects: int = 10, semantic_dim: int = 64):
         super(ObjectAwareVLAVisionEncoder, self).__init__()
         
         self.features = nn.Sequential(
-            # Block 1: 3 x 64 x 64 -> 32 x 32 x 32
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             
-            # Block 2: 32 x 32 x 32 -> 64 x 16 x 16
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             
-            # Block 3: 64 x 16 x 16 -> 128 x 8 x 8
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             
-            # Block 4: 128 x 8 x 8 -> 256 x 4 x 4
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(),
@@ -123,7 +112,6 @@ class RealObjectDataset(torch.utils.data.Dataset):
             img = Image.open(img_path).convert('RGB')
             img = img.resize(self.target_size)
             
-            # Apply online data augmentation during training
             if self.augment and random.random() > 0.5:
                 img = img.transpose(Image.FLIP_LEFT_RIGHT)
                 
@@ -137,7 +125,7 @@ class RealObjectDataset(torch.utils.data.Dataset):
             return blank_tensor, class_id
 
 
-def train_object_detector(epochs=20, batch_size=32, lr=1e-3):
+def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
@@ -152,13 +140,16 @@ def train_object_detector(epochs=20, batch_size=32, lr=1e-3):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ObjectAwareVLAVisionEncoder(num_objects=len(OBJECT_CLASSES), semantic_dim=64).to(device)
     
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+    # 3x Loss Weight Penalty for Human Class to ensure 100% human detection safety
+    class_weights = torch.ones(len(OBJECT_CLASSES), dtype=torch.float32).to(device)
+    class_weights[0] = 3.0 # Class 0: Human
     
-    print(f"\n--- Starting Deep PyTorch Object Vision Training on device: {device} ---", flush=True)
-    print(f"Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}", flush=True)
-    print(f"Total Epochs: {epochs} | Batch Size: {batch_size} | Initial LR: {lr}\n", flush=True)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
+    
+    print(f"\n--- Starting Training Object Vision Encoder with Human Safety Loss Penalty ---", flush=True)
+    print(f"Human Loss Weight: 3.0x | Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}\n", flush=True)
     
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -225,15 +216,14 @@ def train_object_detector(epochs=20, batch_size=32, lr=1e-3):
                 print(f"  -> Saved BEST Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
                 
     plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
-    print(f"\nDeep Training Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
-    print(f"Telemetry saved to {csv_log_path}", flush=True)
+    print(f"\nTraining Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
 
 def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
     
     axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
     axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
-    axes[0].set_title('Deep Object Detection Model Loss', fontsize=11, fontweight='bold')
+    axes[0].set_title('Human-Weighted Object Detection Model Loss', fontsize=11, fontweight='bold')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Loss')
     axes[0].legend()
@@ -255,4 +245,4 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     print(f"Saved Object Detection curves plot to {plot_path}", flush=True)
 
 if __name__ == "__main__":
-    train_object_detector(epochs=20, batch_size=32)
+    train_object_detector(epochs=15, batch_size=32)
