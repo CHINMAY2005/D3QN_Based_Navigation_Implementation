@@ -1,5 +1,5 @@
 """
-Live Camera Feed VLA Guard Pipeline for Physical Mobile Robot Navigation
+Live Camera Feed VLA Guard Pipeline with Telemetry & Frame Data Collector
 
 Runs on: Host Laptop / Jetson Nano / Raspberry Pi
 Functionality:
@@ -8,11 +8,14 @@ Functionality:
 3. Infers live semantic safety tokens (OPEN_WAREHOUSE, CROWDED_ROOM, HAZARDOUS_ZONE).
 4. Extracts 64-dimensional continuous modulation embedding vector e_vla.
 5. Feeds vector to low-level D3QN policy to control physical Arduino differential drive robot.
+6. LOGGING & CONTINUOUS LEARNING: Logs live camera frames and telemetry data to live_logs/
+   for continual model fine-tuning and performance enhancement.
 """
 
 import sys
 import os
 import time
+import csv
 import random
 import numpy as np
 import torch
@@ -27,10 +30,12 @@ from dueling_dqn import VLAGuardedDuelingDQN
 
 class LiveCameraVLAGuardController:
     def __init__(self, camera_id: int = 0, model_path: str = "checkpoints/best_model.pth",
-                 vision_model_path: str = "checkpoints/vla_vision_encoder.pth"):
+                 vision_model_path: str = "checkpoints/vla_vision_encoder.pth",
+                 log_data: bool = True):
         
         self.camera_id = camera_id
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.log_data = log_data
         
         print(f"\n--- Initializing Continuous Live Camera VLA Guard Controller (Device: {self.device}) ---", flush=True)
         
@@ -46,6 +51,19 @@ class LiveCameraVLAGuardController:
             except Exception as e:
                 print(f"Warning loading D3QN weights ({e}). Running baseline policy.", flush=True)
         self.d3qn_policy.eval()
+        
+        # Setup Live Data Logging Infrastructure
+        self.log_dir = "live_logs"
+        self.images_dir = os.path.join(self.log_dir, "images")
+        self.csv_log_path = os.path.join(self.log_dir, "live_session_telemetry.csv")
+        
+        if self.log_data:
+            os.makedirs(self.images_dir, exist_ok=True)
+            if not os.path.exists(self.csv_log_path):
+                with open(self.csv_log_path, mode="w", newline="") as f_csv:
+                    writer = csv.writer(f_csv)
+                    writer.writerow(["Timestamp", "Frame_Path", "VLA_Token", "Embedding_Norm", "Action_ID", "Linear_V", "Angular_W"])
+            print(f"Live Session Telemetry Logger active -> Output Directory: {self.log_dir}/", flush=True)
         
         # Action map: action_id -> [linear_v (m/s), angular_w (rad/s)]
         self.action_map = {
@@ -72,10 +90,10 @@ class LiveCameraVLAGuardController:
                             frames.append((img_path, frame_bgr))
         return frames
 
-    def start_live_stream(self, show_window: bool = True, max_frames: int = None, save_video: bool = True):
+    def start_live_stream(self, show_window: bool = True, max_frames: int = None, save_video: bool = False):
         """
         Captures live continuous video feed from camera or dataset frames, processes vision features through VLA Guard,
-        renders real-time HUD overlays, and computes D3QN velocity commands.
+        renders real-time HUD overlays, computes D3QN velocity commands, and logs session telemetry.
         Runs continuously until 'q' key or Ctrl+C is pressed.
         """
         cap = cv2.VideoCapture(self.camera_id)
@@ -104,6 +122,7 @@ class LiveCameraVLAGuardController:
         last_vla_update = 0.0
         cached_token = "CROWDED_ROOM"
         cached_emb = np.zeros(64, dtype=np.float32)
+        session_timestamp = int(time.time())
         
         try:
             while True:
@@ -143,6 +162,17 @@ class LiveCameraVLAGuardController:
                     
                 v_cmd, w_cmd = self.action_map[action_id]
                 
+                # Live Telemetry Logging for Model Improvement
+                if self.log_data and frame_count % 5 == 0:
+                    frame_filename = f"frame_{session_timestamp}_{frame_count:05d}.jpg"
+                    frame_filepath = os.path.join(self.images_dir, frame_filename)
+                    cv2.imwrite(frame_filepath, frame)
+                    
+                    emb_norm = float(np.linalg.norm(cached_emb))
+                    with open(self.csv_log_path, mode="a", newline="") as f_csv:
+                        writer = csv.writer(f_csv)
+                        writer.writerow([round(curr_time, 3), frame_filepath, cached_token, round(emb_norm, 4), action_id, v_cmd, w_cmd])
+                
                 # Render HUD Overlay on Live Camera Frame
                 color_map = {
                     "OPEN_WAREHOUSE": (0, 255, 0),     # Green (BGR)
@@ -172,7 +202,7 @@ class LiveCameraVLAGuardController:
                 print(f"Frame {frame_count:04d} | VLA Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
                 
                 if not use_hardware_camera:
-                    time.sleep(0.1) # 10 FPS rate control in dataset simulation mode
+                    time.sleep(0.1)
                 
         except KeyboardInterrupt:
             print("\nContinuous Live Camera Feed Stopped by User (Ctrl+C).", flush=True)
@@ -183,11 +213,10 @@ class LiveCameraVLAGuardController:
                 cap.release()
             if video_writer is not None:
                 video_writer.release()
-                print(f"Saved real-time OpenCV HUD video output to: plots/live_vla_camera_hud.mp4", flush=True)
             cv2.destroyAllWindows()
             print("Camera stream closed cleanly.", flush=True)
 
 if __name__ == "__main__":
-    controller = LiveCameraVLAGuardController(camera_id=0)
-    # Set max_frames=None for continuous infinite execution until 'q' or Ctrl+C is pressed
-    controller.start_live_stream(show_window=True, max_frames=None, save_video=True)
+    controller = LiveCameraVLAGuardController(camera_id=0, log_data=True)
+    # Default save_video=False so local video MP4s are NOT recorded or pushed to GitHub
+    controller.start_live_stream(show_window=True, max_frames=None, save_video=False)
