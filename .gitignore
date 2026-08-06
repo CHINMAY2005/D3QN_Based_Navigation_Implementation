@@ -12,6 +12,9 @@ checkpoints/
 # Academic paper drafts & local notes (protect from plagiarism scanners & double-blind review)
 research_paper_details.md
 
+# Large raw image dataset folders
+Datasets/
+
 # IDE & Local Compiled PDF files
 .vscode/
 .idea/

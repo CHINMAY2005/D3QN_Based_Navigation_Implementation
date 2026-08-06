@@ -90,6 +90,25 @@ Training and comparative benchmarking were conducted across 300 episodes under c
 
 ---
 
+### VLA Vision Encoder Training (MIT Indoor Scene Dataset)
+
+The PyTorch `VLAVisionEncoder` CNN model was trained on 2,158 real indoor images from the **MIT Indoor Scene Recognition Dataset** (`Datasets/MIT Indoor Scene Recognition.v5-resized416by416_70-20-10split.folder`) to classify real camera imagery into the 3 VLA semantic safety tokens (`OPEN_WAREHOUSE`, `CROWDED_ROOM`, `HAZARDOUS_ZONE`) and project them into 64-dimensional continuous modulation vectors $e_{\text{vla}} \in \mathbb{R}^{64}$:
+
+| Epoch | Train Loss | Train Accuracy | Valid Loss | Valid Accuracy | Learning Rate | Best Checkpoint |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **1** | 0.8547 | 68.10% | 0.8063 | 81.18% | $1 \times 10^{-3}$ | 💾 Saved |
+| **2** | 0.7807 | 68.21% | 0.6826 | 82.58% | $1 \times 10^{-3}$ | 💾 Saved |
+| **3** | 0.7445 | 69.13% | 0.6158 | 82.23% | $1 \times 10^{-3}$ | - |
+| **4** | 0.7256 | 69.67% | 0.5101 | **83.28%** | $1 \times 10^{-3}$ | 💾 **Peak Best (83.28%)** |
+| **5** | 0.6966 | 69.77% | 0.5378 | 81.53% | $1 \times 10^{-3}$ | - |
+
+- **Vision Encoder Model Script**: `train_vla_vision_model.py`
+- **Trained Weights Checkpoint**: `checkpoints/vla_vision_encoder.pth` (~1.4 MB)
+- **Telemetry CSV Log Path**: `plots/vla_vision_training_metrics.csv`
+- **Training Curves Plot**: `plots/vla_vision_training_curves.png`
+
+---
+
 ## Diagrammatic Workflows
 
 ### Multi-Modal System Architecture Workflow
