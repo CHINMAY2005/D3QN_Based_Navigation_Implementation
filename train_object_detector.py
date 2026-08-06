@@ -1,11 +1,10 @@
 """
-Object-Aware VLA Vision Model Trainer
+Deep Object-Aware VLA Vision Model Trainer
 
 Trains a PyTorch Convolutional Neural Network (ObjectAwareVLAVisionEncoder)
-on the downloaded real object dataset (Datasets/Object_Obstacles/) to identify:
+on the expanded 675+ multi-sample dataset (Datasets/Object_Obstacles/) with data augmentation
+and learning rate decay scheduling across 10 object classes:
 [human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path]
-
-Generates fine-grained object detection logits + 64-dim VLA continuous modulation vector (e_vla).
 """
 
 import os
@@ -43,31 +42,45 @@ CLASS_TO_TOKEN = {
 }
 
 class ObjectAwareVLAVisionEncoder(nn.Module):
+    """
+    Deep Convolutional Neural Network Vision Encoder for Object-Aware VLA Guarding.
+    Extracts deep visual features from images, projects them into a 64-dim VLA embedding (e_vla),
+    and classifies objects across 10 physical obstacle categories.
+    """
     def __init__(self, num_objects: int = 10, semantic_dim: int = 64):
         super(ObjectAwareVLAVisionEncoder, self).__init__()
         
         self.features = nn.Sequential(
+            # Block 1: 3 x 64 x 64 -> 32 x 32 x 32
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             
+            # Block 2: 32 x 32 x 32 -> 64 x 16 x 16
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
             
+            # Block 3: 64 x 16 x 16 -> 128 x 8 x 8
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            
+            # Block 4: 128 x 8 x 8 -> 256 x 4 x 4
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((4, 4))
         )
         
         self.embedding_head = nn.Sequential(
-            nn.Linear(128 * 4 * 4, 128),
+            nn.Linear(256 * 4 * 4, 256),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, semantic_dim)
+            nn.Dropout(0.3),
+            nn.Linear(256, semantic_dim)
         )
         
         self.object_classifier = nn.Linear(semantic_dim, num_objects)
@@ -84,9 +97,10 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
 
 
 class RealObjectDataset(torch.utils.data.Dataset):
-    def __init__(self, root_dir="Datasets/Object_Obstacles", target_size=(64, 64)):
+    def __init__(self, root_dir="Datasets/Object_Obstacles", target_size=(64, 64), augment=True):
         self.samples = []
         self.target_size = target_size
+        self.augment = augment
         
         if not os.path.exists(root_dir):
             raise FileNotFoundError(f"Directory {root_dir} not found. Run download_and_build_dataset.py first.")
@@ -98,7 +112,7 @@ class RealObjectDataset(torch.utils.data.Dataset):
                 for fname in files:
                     self.samples.append((os.path.join(cls_dir, fname), class_id))
                     
-        print(f"Loaded {len(self.samples)} real object images across {len(OBJECT_CLASSES)} classes.")
+        print(f"Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes.")
 
     def __len__(self):
         return len(self.samples)
@@ -108,6 +122,11 @@ class RealObjectDataset(torch.utils.data.Dataset):
         try:
             img = Image.open(img_path).convert('RGB')
             img = img.resize(self.target_size)
+            
+            # Apply online data augmentation during training
+            if self.augment and random.random() > 0.5:
+                img = img.transpose(Image.FLIP_LEFT_RIGHT)
+                
             img_arr = np.array(img, dtype=np.float32) / 255.0
             img_arr = np.transpose(img_arr, (2, 0, 1))
             img_tensor = torch.tensor(img_arr, dtype=torch.float32)
@@ -118,11 +137,11 @@ class RealObjectDataset(torch.utils.data.Dataset):
             return blank_tensor, class_id
 
 
-def train_object_detector(epochs=10, batch_size=16, lr=1e-3):
+def train_object_detector(epochs=20, batch_size=32, lr=1e-3):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
-    dataset = RealObjectDataset()
+    dataset = RealObjectDataset(augment=True)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -135,9 +154,11 @@ def train_object_detector(epochs=10, batch_size=16, lr=1e-3):
     
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
     
-    print(f"\n--- Starting Training PyTorch Object Vision Encoder on device: {device} ---", flush=True)
-    print(f"Target Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}\n", flush=True)
+    print(f"\n--- Starting Deep PyTorch Object Vision Training on device: {device} ---", flush=True)
+    print(f"Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}", flush=True)
+    print(f"Total Epochs: {epochs} | Batch Size: {batch_size} | Initial LR: {lr}\n", flush=True)
     
     train_losses, val_losses = [], []
     train_accs, val_accs = [], []
@@ -185,15 +206,18 @@ def train_object_detector(epochs=10, batch_size=16, lr=1e-3):
             val_loss = v_loss / val_total if val_total > 0 else 0.0
             val_acc = val_correct / val_total if val_total > 0 else 0.0
             
+            scheduler.step(val_loss)
+            curr_lr = optimizer.param_groups[0]['lr']
+            
             train_losses.append(train_loss)
             val_losses.append(val_loss)
             train_accs.append(train_acc)
             val_accs.append(val_acc)
             
-            writer.writerow([epoch, round(train_loss, 4), round(train_acc, 4), round(val_loss, 4), round(val_acc, 4), lr])
+            writer.writerow([epoch, round(train_loss, 4), round(train_acc, 4), round(val_loss, 4), round(val_acc, 4), curr_lr])
             
             print(f"Epoch {epoch:2d}/{epochs} | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2%} | "
-                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2%}", flush=True)
+                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2%} | LR: {curr_lr:.6f}", flush=True)
                   
             if val_acc >= best_val_acc:
                 best_val_acc = val_acc
@@ -201,14 +225,15 @@ def train_object_detector(epochs=10, batch_size=16, lr=1e-3):
                 print(f"  -> Saved BEST Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
                 
     plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
-    print(f"\nTraining Complete! Telemetry saved to {csv_log_path}", flush=True)
+    print(f"\nDeep Training Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
+    print(f"Telemetry saved to {csv_log_path}", flush=True)
 
 def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir):
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
     
     axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
     axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
-    axes[0].set_title('Object Detection Model Loss', fontsize=11, fontweight='bold')
+    axes[0].set_title('Deep Object Detection Model Loss', fontsize=11, fontweight='bold')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Loss')
     axes[0].legend()
@@ -230,4 +255,4 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     print(f"Saved Object Detection curves plot to {plot_path}", flush=True)
 
 if __name__ == "__main__":
-    train_object_detector(epochs=10)
+    train_object_detector(epochs=20, batch_size=32)
