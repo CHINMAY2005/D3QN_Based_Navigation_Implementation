@@ -2,7 +2,7 @@
 Object-Aware VLA Vision Model Trainer
 
 Trains a PyTorch Convolutional Neural Network (ObjectAwareVLAVisionEncoder)
-to identify specific physical objects and obstacles:
+on the downloaded real object dataset (Datasets/Object_Obstacles/) to identify:
 [human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path]
 
 Generates fine-grained object detection logits + 64-dim VLA continuous modulation vector (e_vla).
@@ -24,20 +24,9 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 
-# =====================================================================
-# 1. OBJECT TARGET CLASSES & SAFETY MAPPING
-# =====================================================================
 OBJECT_CLASSES = [
-    "human",      # Class 0: Critical obstacle (HAZARDOUS)
-    "wall",       # Class 1: Solid obstacle (CROWDED)
-    "chair",      # Class 2: Interior furniture (CROWDED)
-    "door",       # Class 3: Passage opening (OPEN)
-    "mirror",     # Class 4: Reflection hazard (HAZARDOUS)
-    "glass",      # Class 5: Transparent hazard (HAZARDOUS)
-    "shoe",       # Class 6: Small floor obstacle (CROWDED)
-    "phone",      # Class 7: Small personal object (CROWDED)
-    "mouse",      # Class 8: Small personal object (CROWDED)
-    "clear_path"  # Class 9: Open clear hallway (OPEN)
+    "human", "wall", "chair", "door", "mirror",
+    "glass", "shoe", "phone", "mouse", "clear_path"
 ]
 
 CLASS_TO_TOKEN = {
@@ -53,19 +42,10 @@ CLASS_TO_TOKEN = {
     "clear_path": "OPEN_WAREHOUSE"
 }
 
-# =====================================================================
-# 2. OBJECT-AWARE VLA VISION ENCODER ARCHITECTURE
-# =====================================================================
 class ObjectAwareVLAVisionEncoder(nn.Module):
-    """
-    Multi-Task PyTorch Vision Model that detects specific physical objects
-    (human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path)
-    and projects features into a continuous 64-dim VLA modulation vector e_vla.
-    """
     def __init__(self, num_objects: int = 10, semantic_dim: int = 64):
         super(ObjectAwareVLAVisionEncoder, self).__init__()
         
-        # Convolutional Feature Extractor
         self.features = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
@@ -83,7 +63,6 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
             nn.AdaptiveAvgPool2d((4, 4))
         )
         
-        # 64-dim Bottleneck Modulation Vector Head (e_vla in R^64)
         self.embedding_head = nn.Sequential(
             nn.Linear(128 * 4 * 4, 128),
             nn.ReLU(),
@@ -91,7 +70,6 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
             nn.Linear(128, semantic_dim)
         )
         
-        # Object Classifier Head (10 target classes)
         self.object_classifier = nn.Linear(semantic_dim, num_objects)
         
     def extract_embedding(self, x: torch.Tensor) -> torch.Tensor:
@@ -105,57 +83,46 @@ class ObjectAwareVLAVisionEncoder(nn.Module):
         return object_logits, embedding
 
 
-# =====================================================================
-# 3. SYNTHETIC & LOGGED OBJECT DATASET GENERATOR
-# =====================================================================
-class ObjectObstacleDataset(torch.utils.data.Dataset):
-    def __init__(self, samples_per_class=50, target_size=(64, 64)):
+class RealObjectDataset(torch.utils.data.Dataset):
+    def __init__(self, root_dir="Datasets/Object_Obstacles", target_size=(64, 64)):
         self.samples = []
         self.target_size = target_size
         
-        # Generate representative visual samples for each target object
-        for class_id, obj_name in enumerate(OBJECT_CLASSES):
-            for i in range(samples_per_class):
-                self.samples.append((obj_name, class_id))
-                
+        if not os.path.exists(root_dir):
+            raise FileNotFoundError(f"Directory {root_dir} not found. Run download_and_build_dataset.py first.")
+            
+        for class_id, cls_name in enumerate(OBJECT_CLASSES):
+            cls_dir = os.path.join(root_dir, cls_name)
+            if os.path.exists(cls_dir):
+                files = [f for f in os.listdir(cls_dir) if f.lower().endswith(('.jpg', '.png'))]
+                for fname in files:
+                    self.samples.append((os.path.join(cls_dir, fname), class_id))
+                    
+        print(f"Loaded {len(self.samples)} real object images across {len(OBJECT_CLASSES)} classes.")
+
     def __len__(self):
         return len(self.samples)
-        
+
     def __getitem__(self, idx):
-        obj_name, class_id = self.samples[idx]
-        
-        # Generate synthetic visual pattern representing the object class
-        img_arr = np.random.uniform(0.1, 0.9, size=(self.target_size[0], self.target_size[1], 3)).astype(np.float32)
-        
-        # Object specific color signature
-        color_signatures = {
-            "human": [0.8, 0.3, 0.2],    # Skin/Clothing warm tones
-            "wall": [0.5, 0.5, 0.5],     # Gray solid
-            "chair": [0.3, 0.2, 0.1],    # Brown wood/fabric
-            "door": [0.4, 0.2, 0.1],     # Door frame
-            "mirror": [0.9, 0.9, 1.0],   # Bright reflective
-            "glass": [0.7, 0.9, 0.9],    # Transparent cyan
-            "shoe": [0.1, 0.1, 0.1],     # Dark shoe
-            "phone": [0.0, 0.0, 0.2],    # Small dark blue/black
-            "mouse": [0.2, 0.2, 0.2],    # Small mouse shape
-            "clear_path": [0.2, 0.8, 0.2] # Open green path
-        }
-        sig = color_signatures.get(obj_name, [0.5, 0.5, 0.5])
-        img_arr[:, :] = img_arr[:, :] * 0.3 + np.array(sig, dtype=np.float32) * 0.7
-        
-        img_tensor = torch.tensor(np.transpose(img_arr, (2, 0, 1)), dtype=torch.float32)
-        img_tensor = (img_tensor - 0.5) / 0.5
-        return img_tensor, class_id
+        img_path, class_id = self.samples[idx]
+        try:
+            img = Image.open(img_path).convert('RGB')
+            img = img.resize(self.target_size)
+            img_arr = np.array(img, dtype=np.float32) / 255.0
+            img_arr = np.transpose(img_arr, (2, 0, 1))
+            img_tensor = torch.tensor(img_arr, dtype=torch.float32)
+            img_tensor = (img_tensor - 0.5) / 0.5
+            return img_tensor, class_id
+        except Exception:
+            blank_tensor = torch.zeros((3, self.target_size[0], self.target_size[1]), dtype=torch.float32)
+            return blank_tensor, class_id
 
 
-# =====================================================================
-# 4. TRAINING ROUTINE
-# =====================================================================
-def train_object_detector(epochs=8, batch_size=32, lr=1e-3):
+def train_object_detector(epochs=10, batch_size=16, lr=1e-3):
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
-    dataset = ObjectObstacleDataset(samples_per_class=60)
+    dataset = RealObjectDataset()
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -167,56 +134,100 @@ def train_object_detector(epochs=8, batch_size=32, lr=1e-3):
     model = ObjectAwareVLAVisionEncoder(num_objects=len(OBJECT_CLASSES), semantic_dim=64).to(device)
     
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     
-    print(f"\n--- Starting Object Detection VLA Model Training on device: {device} ---", flush=True)
-    print(f"Target Classes: {OBJECT_CLASSES}", flush=True)
+    print(f"\n--- Starting Training PyTorch Object Vision Encoder on device: {device} ---", flush=True)
+    print(f"Target Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}\n", flush=True)
     
+    train_losses, val_losses = [], []
+    train_accs, val_accs = [], []
     best_val_acc = 0.0
     
-    for epoch in range(1, epochs + 1):
-        model.train()
-        running_loss, correct, total = 0.0, 0, 0
+    csv_log_path = os.path.join("plots", "object_vision_training_metrics.csv")
+    with open(csv_log_path, mode="w", newline="") as f_csv:
+        writer = csv.writer(f_csv)
+        writer.writerow(["Epoch", "Train_Loss", "Train_Accuracy", "Valid_Loss", "Valid_Accuracy", "LR"])
         
-        for imgs, labels in train_loader:
-            imgs, labels = imgs.to(device), labels.to(device)
+        for epoch in range(1, epochs + 1):
+            model.train()
+            running_loss, correct, total = 0.0, 0, 0
             
-            optimizer.zero_grad()
-            logits, embeddings = model(imgs)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
-            
-            running_loss += loss.item() * imgs.size(0)
-            preds = torch.argmax(logits, dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-            
-        train_loss = running_loss / total
-        train_acc = correct / total
-        
-        model.eval()
-        val_loss, val_correct, val_total = 0.0, 0, 0
-        with torch.no_grad():
-            for imgs, labels in val_loader:
+            for imgs, labels in train_loader:
                 imgs, labels = imgs.to(device), labels.to(device)
+                
+                optimizer.zero_grad()
                 logits, embeddings = model(imgs)
                 loss = criterion(logits, labels)
+                loss.backward()
+                optimizer.step()
                 
-                val_loss += loss.item() * imgs.size(0)
+                running_loss += loss.item() * imgs.size(0)
                 preds = torch.argmax(logits, dim=1)
-                val_correct += (preds == labels).sum().item()
-                val_total += labels.size(0)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
                 
-        val_acc = val_correct / val_total
-        print(f"Epoch {epoch:2d}/{epochs} | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2%} | Val Acc: {val_acc:.2%}", flush=True)
-        
-        if val_acc >= best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), "checkpoints/object_vla_encoder.pth")
-            print(f"  -> Saved BEST Object VLA Encoder weights to checkpoints/object_vla_encoder.pth", flush=True)
+            train_loss = running_loss / total if total > 0 else 0.0
+            train_acc = correct / total if total > 0 else 0.0
             
-    print("\nTraining Complete! Object Vision Encoder ready.", flush=True)
+            model.eval()
+            v_loss, val_correct, val_total = 0.0, 0, 0
+            with torch.no_grad():
+                for imgs, labels in val_loader:
+                    imgs, labels = imgs.to(device), labels.to(device)
+                    logits, embeddings = model(imgs)
+                    loss = criterion(logits, labels)
+                    
+                    v_loss += loss.item() * imgs.size(0)
+                    preds = torch.argmax(logits, dim=1)
+                    val_correct += (preds == labels).sum().item()
+                    val_total += labels.size(0)
+                    
+            val_loss = v_loss / val_total if val_total > 0 else 0.0
+            val_acc = val_correct / val_total if val_total > 0 else 0.0
+            
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+            train_accs.append(train_acc)
+            val_accs.append(val_acc)
+            
+            writer.writerow([epoch, round(train_loss, 4), round(train_acc, 4), round(val_loss, 4), round(val_acc, 4), lr])
+            
+            print(f"Epoch {epoch:2d}/{epochs} | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2%} | "
+                  f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2%}", flush=True)
+                  
+            if val_acc >= best_val_acc:
+                best_val_acc = val_acc
+                torch.save(model.state_dict(), "checkpoints/object_vla_encoder.pth")
+                print(f"  -> Saved BEST Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
+                
+    plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
+    print(f"\nTraining Complete! Telemetry saved to {csv_log_path}", flush=True)
+
+def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), dpi=150)
+    
+    axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
+    axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
+    axes[0].set_title('Object Detection Model Loss', fontsize=11, fontweight='bold')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('Loss')
+    axes[0].legend()
+    axes[0].grid(True, linestyle=':', alpha=0.6)
+    
+    axes[1].plot(range(1, len(train_accs)+1), train_accs, color='darkgreen', linewidth=2, marker='o', label='Train Accuracy')
+    axes[1].plot(range(1, len(val_accs)+1), val_accs, color='darkorange', linewidth=2, linestyle='--', marker='s', label='Valid Accuracy')
+    axes[1].set_title('10-Class Object Identification Accuracy', fontsize=11, fontweight='bold')
+    axes[1].set_xlabel('Epoch')
+    axes[1].set_ylabel('Accuracy')
+    axes[1].set_ylim(0.0, 1.05)
+    axes[1].legend()
+    axes[1].grid(True, linestyle=':', alpha=0.6)
+    
+    plt.tight_layout()
+    plot_path = os.path.join(plot_dir, "object_vision_training_curves.png")
+    plt.savefig(plot_path, dpi=150)
+    plt.close()
+    print(f"Saved Object Detection curves plot to {plot_path}", flush=True)
 
 if __name__ == "__main__":
-    train_object_detector(epochs=8)
+    train_object_detector(epochs=10)
