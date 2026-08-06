@@ -1,8 +1,8 @@
 """
-Multi-Source Object Dataset Downloader & Builder (Excludes Glass)
+Multi-Source Object Dataset Downloader & Builder (Excludes Glass & Mouse)
 
 Populates local dataset directory (Datasets/Object_Obstacles/) with diverse image samples
-per target class: [human, wall, chair, door, mirror, shoe, phone, mouse, clear_path]
+per target class: [human, wall, chair, door, mirror, shoe, phone, clear_path]
 """
 
 import os
@@ -15,7 +15,7 @@ from PIL import Image, ImageEnhance
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
-CLASSES = ["human", "wall", "chair", "door", "mirror", "shoe", "phone", "mouse", "clear_path"]
+CLASSES = ["human", "wall", "chair", "door", "mirror", "shoe", "phone", "clear_path"]
 BASE_DIR = os.path.join("Datasets", "Object_Obstacles")
 
 OBJECT_IMAGE_URLS = {
@@ -44,9 +44,6 @@ OBJECT_IMAGE_URLS = {
     "phone": [
         "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=400&q=80"
     ],
-    "mouse": [
-        "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=400&q=80"
-    ],
     "clear_path": [
         "https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&q=80"
     ]
@@ -65,13 +62,14 @@ def generate_augmented_variation(base_img, file_path, var_id):
 def download_and_build_dataset(samples_per_class=50):
     os.makedirs(BASE_DIR, exist_ok=True)
     
-    # Remove glass dataset folder if present
-    glass_dir = os.path.join(BASE_DIR, "glass")
-    if os.path.exists(glass_dir):
-        shutil.rmtree(glass_dir)
-        print("Removed 'glass' category dataset directory.", flush=True)
+    # Remove glass and mouse dataset folders if present
+    for remove_cat in ["glass", "mouse"]:
+        rem_dir = os.path.join(BASE_DIR, remove_cat)
+        if os.path.exists(rem_dir):
+            shutil.rmtree(rem_dir)
+            print(f"Removed '{remove_cat}' category dataset directory.", flush=True)
         
-    print(f"\n--- Building Object Dataset (9 classes, ex. Glass) in '{BASE_DIR}/' ---", flush=True)
+    print(f"\n--- Building Object Dataset (8 classes, ex. Glass & Mouse) in '{BASE_DIR}/' ---", flush=True)
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     for cat in CLASSES:
@@ -113,7 +111,7 @@ def download_and_build_dataset(samples_per_class=50):
         existing_count = len([f for f in os.listdir(cat_dir) if f.endswith(('.jpg', '.png'))])
         print(f"  Class [{cat:10s}]: Ready with {existing_count} image samples.", flush=True)
         
-    print(f"\nDataset build complete! 9 classes ready (Glass removed).", flush=True)
+    print(f"\nDataset build complete! 8 classes ready (Glass & Mouse removed).", flush=True)
 
 if __name__ == "__main__":
     download_and_build_dataset(samples_per_class=50)

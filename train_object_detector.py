@@ -1,8 +1,8 @@
 """
-Object-Aware VLA Vision Model Trainer (9 Classes, Excluding Glass)
+Object-Aware VLA Vision Model Trainer (8 Classes, Excluding Glass & Mouse)
 
-Trains PyTorch ObjectAwareVLAVisionEncoder across 9 target physical obstacle classes:
-[human, wall, chair, door, mirror, shoe, phone, mouse, clear_path]
+Trains PyTorch ObjectAwareVLAVisionEncoder across 8 target physical obstacle classes:
+[human, wall, chair, door, mirror, shoe, phone, clear_path]
 """
 
 import os
@@ -23,7 +23,7 @@ random.seed(42)
 
 OBJECT_CLASSES = [
     "human", "wall", "chair", "door", "mirror",
-    "shoe", "phone", "mouse", "clear_path"
+    "shoe", "phone", "clear_path"
 ]
 
 CLASS_TO_TOKEN = {
@@ -33,13 +33,12 @@ CLASS_TO_TOKEN = {
     "chair": "CROWDED_ROOM",
     "shoe": "CROWDED_ROOM",
     "phone": "CROWDED_ROOM",
-    "mouse": "CROWDED_ROOM",
     "door": "OPEN_WAREHOUSE",
     "clear_path": "OPEN_WAREHOUSE"
 }
 
 class ObjectAwareVLAVisionEncoder(nn.Module):
-    def __init__(self, num_objects: int = 9, semantic_dim: int = 64):
+    def __init__(self, num_objects: int = 8, semantic_dim: int = 64):
         super(ObjectAwareVLAVisionEncoder, self).__init__()
         
         self.features = nn.Sequential(
@@ -100,7 +99,7 @@ class RealObjectDataset(torch.utils.data.Dataset):
                 for fname in files:
                     self.samples.append((os.path.join(cls_dir, fname), class_id))
                     
-        print(f"Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (Glass removed).")
+        print(f"Dataset Loaded: {len(self.samples)} images across {len(OBJECT_CLASSES)} classes (Glass & Mouse removed).")
 
     def __len__(self):
         return len(self.samples)
@@ -147,7 +146,7 @@ def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     
-    print(f"\n--- Starting 9-Class Object Vision Encoder Training (Glass Removed) ---", flush=True)
+    print(f"\n--- Starting 8-Class Object Vision Encoder Training (Glass & Mouse Removed) ---", flush=True)
     print(f"Human Loss Weight: 3.0x | Classes ({len(OBJECT_CLASSES)}): {OBJECT_CLASSES}\n", flush=True)
     
     train_losses, val_losses = [], []
@@ -212,7 +211,7 @@ def train_object_detector(epochs=15, batch_size=32, lr=1e-3):
             if val_acc >= best_val_acc:
                 best_val_acc = val_acc
                 torch.save(model.state_dict(), "checkpoints/object_vla_encoder.pth")
-                print(f"  -> Saved BEST 9-Class Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
+                print(f"  -> Saved BEST 8-Class Object VLA Encoder weights (Val Acc: {best_val_acc:.2%})", flush=True)
                 
     plot_object_results(train_losses, val_losses, train_accs, val_accs, "plots")
     print(f"\nTraining Complete! Best Validation Accuracy: {best_val_acc:.2%}", flush=True)
@@ -222,7 +221,7 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     
     axes[0].plot(range(1, len(train_losses)+1), train_losses, color='crimson', linewidth=2, marker='o', label='Train Loss')
     axes[0].plot(range(1, len(val_losses)+1), val_losses, color='dodgerblue', linewidth=2, linestyle='--', marker='s', label='Valid Loss')
-    axes[0].set_title('9-Class Object Detection Loss (Glass Excluded)', fontsize=11, fontweight='bold')
+    axes[0].set_title('8-Class Object Detection Loss (Glass & Mouse Excluded)', fontsize=11, fontweight='bold')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Loss')
     axes[0].legend()
@@ -230,7 +229,7 @@ def plot_object_results(train_losses, val_losses, train_accs, val_accs, plot_dir
     
     axes[1].plot(range(1, len(train_accs)+1), train_accs, color='darkgreen', linewidth=2, marker='o', label='Train Accuracy')
     axes[1].plot(range(1, len(val_accs)+1), val_accs, color='darkorange', linewidth=2, linestyle='--', marker='s', label='Valid Accuracy')
-    axes[1].set_title('9-Class Object Identification Accuracy', fontsize=11, fontweight='bold')
+    axes[1].set_title('8-Class Object Identification Accuracy', fontsize=11, fontweight='bold')
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Accuracy')
     axes[1].set_ylim(0.0, 1.05)
