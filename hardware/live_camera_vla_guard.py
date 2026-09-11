@@ -5,7 +5,7 @@ Runs on: Host Laptop / Jetson Nano / Raspberry Pi
 Functionality:
 1. Connects to live camera feed via OpenCV (USB Webcam / CSI Camera / Dataset Stream).
 2. Runs PyTorch ObjectAwareVLAVisionEncoder (trained weights: checkpoints/object_vla_encoder.pth).
-3. Detects physical objects: [human, wall, chair, door, mirror, glass, shoe, phone, mouse, clear_path].
+3. Detects physical objects: [human, wall, chair, door, shoe, phone, clear_path].
 4. Maps detected objects to safety tokens (OPEN_WAREHOUSE, CROWDED_ROOM, HAZARDOUS_ZONE) & 64-dim embedding vector e_vla.
 5. Feeds vector to low-level D3QN policy to control physical Arduino differential drive robot.
 """

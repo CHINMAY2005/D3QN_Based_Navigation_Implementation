@@ -1,8 +1,8 @@
 """
-Multi-Source Object Dataset Downloader & Builder (Excludes Glass & Mouse)
+Multi-Source Object Dataset Downloader & Builder (Excludes Glass, Mouse & Mirror)
 
 Populates local dataset directory (Datasets/Object_Obstacles/) with diverse image samples
-per target class: [human, wall, chair, door, mirror, shoe, phone, clear_path]
+per target class: [human, wall, chair, door, shoe, phone, clear_path]
 """
 
 import os
@@ -15,7 +15,7 @@ from PIL import Image, ImageEnhance
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
-CLASSES = ["human", "wall", "chair", "door", "mirror", "shoe", "phone", "clear_path"]
+CLASSES = ["human", "wall", "chair", "door", "shoe", "phone", "clear_path"]
 BASE_DIR = os.path.join("Datasets", "Object_Obstacles")
 
 OBJECT_IMAGE_URLS = {
@@ -34,9 +34,6 @@ OBJECT_IMAGE_URLS = {
     ],
     "door": [
         "https://images.unsplash.com/photo-1517646287270-a5a9ca602e5c?w=400&q=80"
-    ],
-    "mirror": [
-        "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=400&q=80"
     ],
     "shoe": [
         "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80"
@@ -62,14 +59,14 @@ def generate_augmented_variation(base_img, file_path, var_id):
 def download_and_build_dataset(samples_per_class=50):
     os.makedirs(BASE_DIR, exist_ok=True)
     
-    # Remove glass and mouse dataset folders if present
-    for remove_cat in ["glass", "mouse"]:
+    # Remove glass, mouse, and mirror dataset folders if present
+    for remove_cat in ["glass", "mouse", "mirror"]:
         rem_dir = os.path.join(BASE_DIR, remove_cat)
         if os.path.exists(rem_dir):
             shutil.rmtree(rem_dir)
             print(f"Removed '{remove_cat}' category dataset directory.", flush=True)
         
-    print(f"\n--- Building Object Dataset (8 classes, ex. Glass & Mouse) in '{BASE_DIR}/' ---", flush=True)
+    print(f"\n--- Building Object Dataset (7 classes, ex. Glass, Mouse & Mirror) in '{BASE_DIR}/' ---", flush=True)
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
     for cat in CLASSES:

@@ -2,8 +2,8 @@
 Rigorous Multi-Origin Object-Aware VLA Vision Model Trainer
 
 Trains PyTorch ObjectAwareVLAVisionEncoder with Color Jitter Augmentation and 5.0x Human Loss Penalty
-on the expanded dataset (220+ Human, 220+ Phone, 850+ total samples) across 8 target classes:
-[human, wall, chair, door, mirror, shoe, phone, clear_path]
+on the expanded dataset across 7 target classes:
+[human, wall, chair, door, shoe, phone, clear_path]
 """
 
 import os
@@ -23,13 +23,12 @@ np.random.seed(42)
 random.seed(42)
 
 OBJECT_CLASSES = [
-    "human", "wall", "chair", "door", "mirror",
+    "human", "wall", "chair", "door",
     "shoe", "phone", "clear_path"
 ]
 
 CLASS_TO_TOKEN = {
     "human": "HAZARDOUS_ZONE",
-    "mirror": "HAZARDOUS_ZONE",
     "wall": "CROWDED_ROOM",
     "chair": "CROWDED_ROOM",
     "shoe": "CROWDED_ROOM",
@@ -39,7 +38,7 @@ CLASS_TO_TOKEN = {
 }
 
 class ObjectAwareVLAVisionEncoder(nn.Module):
-    def __init__(self, num_objects: int = 8, semantic_dim: int = 64):
+    def __init__(self, num_objects: int = 7, semantic_dim: int = 64):
         super(ObjectAwareVLAVisionEncoder, self).__init__()
         
         self.features = nn.Sequential(
@@ -147,8 +146,10 @@ def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
     model = ObjectAwareVLAVisionEncoder(num_objects=len(OBJECT_CLASSES), semantic_dim=64).to(device)
     
     class_weights = torch.ones(len(OBJECT_CLASSES), dtype=torch.float32).to(device)
-    class_weights[0] = 5.0 # Class 0: Human (5x Loss Weight Penalty)
-    class_weights[6] = 2.0 # Class 6: Phone (2x Loss Weight Penalty)
+    if "human" in OBJECT_CLASSES:
+        class_weights[OBJECT_CLASSES.index("human")] = 5.0 # Human (5x Loss Weight Penalty)
+    if "phone" in OBJECT_CLASSES:
+        class_weights[OBJECT_CLASSES.index("phone")] = 2.0 # Phone (2x Loss Weight Penalty)
     
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)

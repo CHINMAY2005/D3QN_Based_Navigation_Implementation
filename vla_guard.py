@@ -10,10 +10,10 @@ class VLAGuard:
     
     1. Uses OpenCV Haar Cascade Face/Body Detector to guarantee high-confidence 
        detection of real humans.
-    2. Runs PyTorch ObjectAwareVLAVisionEncoder for 8-class object identification:
-       [human, wall, chair, door, mirror, shoe, phone, clear_path]
+    2. Runs PyTorch ObjectAwareVLAVisionEncoder for 7-class object identification:
+       [human, wall, chair, door, shoe, phone, clear_path]
     3. Maps detected objects to VLA Safety Tokens:
-       - human, mirror -> HAZARDOUS_ZONE
+       - human -> HAZARDOUS_ZONE
        - wall, chair, shoe, phone -> CROWDED_ROOM
        - door, clear_path -> OPEN_WAREHOUSE
     """
@@ -31,15 +31,14 @@ class VLAGuard:
             2: "HAZARDOUS_ZONE"
         }
         
-        # 8 Target Classes (Glass & Mouse removed)
+        # 7 Target Classes (Glass, Mouse & Mirror removed)
         self.object_classes = [
-            "human", "wall", "chair", "door", "mirror",
+            "human", "wall", "chair", "door",
             "shoe", "phone", "clear_path"
         ]
         
         self.class_to_token = {
             "human": "HAZARDOUS_ZONE",
-            "mirror": "HAZARDOUS_ZONE",
             "wall": "CROWDED_ROOM",
             "chair": "CROWDED_ROOM",
             "shoe": "CROWDED_ROOM",
@@ -68,14 +67,14 @@ class VLAGuard:
         except Exception:
             self.face_cascade = None
             
-        # Load Object Vision Encoder (8 classes) if available
+        # Load Object Vision Encoder (7 classes) if available
         if os.path.exists(self.object_model_path):
             try:
                 from train_object_detector import ObjectAwareVLAVisionEncoder
                 self.object_model = ObjectAwareVLAVisionEncoder(num_objects=len(self.object_classes), semantic_dim=semantic_dim).to(self.device)
                 self.object_model.load_state_dict(torch.load(self.object_model_path, map_location=self.device))
                 self.object_model.eval()
-                print(f"VLAGuard: Successfully loaded 8-Class Object Vision Encoder from {self.object_model_path}")
+                print(f"VLAGuard: Successfully loaded 7-Class Object Vision Encoder from {self.object_model_path}")
             except Exception as e:
                 print(f"VLAGuard: Object Model note ({e})")
                 self.object_model = None
@@ -104,7 +103,7 @@ class VLAGuard:
 
     def detect_objects_and_get_context(self, image_path_or_pil) -> tuple:
         """
-        Detects physical objects in image across 8 target classes (Glass & Mouse removed).
+        Detects physical objects in image across 7 target classes (Glass, Mouse & Mirror removed).
         Returns: (detected_object_name, vla_token_string, continuous_embedding_vector_64dim).
         """
         if isinstance(image_path_or_pil, str):
@@ -121,7 +120,7 @@ class VLAGuard:
             emb_np = self.fallback_embeddings["HAZARDOUS_ZONE"]
             return obj_name, token_str, emb_np
             
-        # 2. PyTorch 8-Class Object Detection Model Inference
+        # 2. PyTorch 7-Class Object Detection Model Inference
         img_resized = pil_img.resize((64, 64))
         img_arr = np.array(img_resized, dtype=np.float32) / 255.0
         img_arr = np.transpose(img_arr, (2, 0, 1))
