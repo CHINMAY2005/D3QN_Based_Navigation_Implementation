@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VLA Guard Custom Object & Path Training Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0b0f19;
+      --card-bg: rgba(22, 30, 49, 0.7);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --accent-purple: #8b5cf6;
+      --accent-indigo: #6366f1;
+      --accent-cyan: #06b6d4;
+      --accent-emerald: #10b981;
+      --accent-rose: #f43f5e;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: radial-gradient(circle at top right, #1e1b4b, var(--bg-dark) 60%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.35rem 0.85rem;
+      background: rgba(99, 102, 241, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      color: #a5b4fc;
+      border-radius: 50px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      font-size: 2.75rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #ffffff, #a5b4fc, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 960px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .glass-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 2rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .card-title {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .radio-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .radio-card {
+      position: relative;
+      background: rgba(255, 255, 255, 0.04);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 1rem;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      text-align: center;
+    }
+
+    .radio-card:hover {
+      border-color: var(--accent-indigo);
+      background: rgba(99, 102, 241, 0.08);
+    }
+
+    .radio-card input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+    }
+
+    .radio-card input[type="radio"]:checked + .radio-content {
+      color: #ffffff;
+    }
+
+    .radio-card input[type="radio"]:checked ~ .radio-border {
+      position: absolute;
+      inset: -2px;
+      border: 2px solid var(--accent-purple);
+      border-radius: 12px;
+      pointer-events: none;
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+    }
+
+    .radio-title {
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    .radio-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    textarea, select, input[type="number"] {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 1rem;
+      transition: border-color 0.2s;
+    }
+
+    textarea:focus, select:focus, input[type="number"]:focus {
+      outline: none;
+      border-color: var(--accent-indigo);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+    }
+
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    .btn-primary {
+      width: 100%;
+      background: linear-gradient(135deg, var(--accent-indigo), var(--accent-purple));
+      border: none;
+      color: white;
+      padding: 1.1rem;
+      border-radius: 14px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 15px 35px rgba(139, 92, 246, 0.5);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Class Cards List */
+    .class-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      max-height: 380px;
+      overflow-y: auto;
+      padding-right: 0.5rem;
+    }
+
+    .class-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem;
+      transition: transform 0.2s;
+    }
+
+    .class-item:hover {
+      transform: translateY(-3px);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .class-name {
+      font-weight: 600;
+      font-size: 1.05rem;
+      text-transform: capitalize;
+    }
+
+    .token-tag {
+      font-size: 0.75rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      font-weight: 600;
+      display: inline-block;
+      margin-top: 0.5rem;
+    }
+
+    .tag-hazard { background: rgba(244, 63, 94, 0.2); color: #fecdd3; border: 1px solid rgba(244, 63, 94, 0.4); }
+    .tag-crowded { background: rgba(245, 158, 11, 0.2); color: #fef08a; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .tag-open { background: rgba(16, 185, 129, 0.2); color: #a7f3d0; border: 1px solid rgba(16, 185, 129, 0.4); }
+
+    /* Terminal Logs */
+    .terminal-window {
+      background: #090d16;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      height: 180px;
+      overflow-y: auto;
+      color: #34d399;
+      margin-top: 1.5rem;
+    }
+
+    .curve-img {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--card-border);
+      margin-top: 1.5rem;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">Google DeepMind Autonomous Robotics</div>
+      <h1>VLA Guard Custom Object & Path Studio</h1>
+      <p class="subtitle">Type custom objects or paths, create isolated dataset folders, and retrain the VLA vision encoder in real-time.</p>
+    </header>
+
+    <div class="grid">
+      <!-- Input Panel -->
+      <div class="glass-card">
+        <div class="card-title">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"></path></svg>
+          Add Custom Categories & Train
+        </div>
+
+        <form id="train-form">
+          <!-- Step 1: Category Type Selection -->
+          <div class="form-group">
+            <label>1. Select Category Type</label>
+            <div class="radio-group">
+              <label class="radio-card">
+                <input type="radio" name="category_type" value="object" checked>
+                <div class="radio-content">
+                  <div class="radio-title">📦 Object</div>
+                  <div class="radio-desc">Obstacle / Physical Hazard</div>
+                </div>
+                <div class="radio-border"></div>
+              </label>
+
+              <label class="radio-card">
+                <input type="radio" name="category_type" value="path">
+                <div class="radio-content">
+                  <div class="radio-title">🛣️ Path</div>
+                  <div class="radio-desc">Clear Navigation Route</div>
+                </div>
+                <div class="radio-border"></div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Step 2: Custom Text Area -->
+          <div class="form-group">
+            <label for="object_names">2. Type Custom Object / Path Name(s)</label>
+            <textarea id="object_names" placeholder="Type single or multiple names (e.g. laptop, water_bottle, office_desk, narrow_corridor) separated by commas or lines..."></textarea>
+          </div>
+
+          <!-- Step 3: VLA Safety Token -->
+          <div class="form-group">
+            <label for="vla_token">3. VLA Safety Token Mapping</label>
+            <select id="vla_token">
+              <option value="auto" selected>⚡ Auto-Assign (Objects -> CROWDED_ROOM, Paths -> OPEN_WAREHOUSE)</option>
+              <option value="HAZARDOUS_ZONE">🛑 HAZARDOUS_ZONE (High Caution / Evacuate)</option>
+              <option value="CROWDED_ROOM">⚠️ CROWDED_ROOM (Slow Navigation / Dodge)</option>
+              <option value="OPEN_WAREHOUSE">🟢 OPEN_WAREHOUSE (High Speed Clearance)</option>
+            </select>
+          </div>
+
+          <!-- Hyperparameters -->
+          <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+            <div>
+              <label for="samples_per_class">Seed Samples / Folder</label>
+              <input type="number" id="samples_per_class" value="50" min="10" max="200">
+            </div>
+            <div>
+              <label for="epochs">Training Epochs</label>
+              <input type="number" id="epochs" value="20" min="5" max="50">
+            </div>
+          </div>
+
+          <button type="submit" class="btn-primary" id="btn-submit">
+            ⚡ Create Dataset Folders & Train Model
+          </button>
+        </form>
+      </div>
+
+      <!-- Live Dataset & Training Monitor Panel -->
+      <div class="glass-card">
+        <div class="card-title">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h7"></path></svg>
+          Active Dataset Classes (<span id="total-classes">0</span>)
+        </div>
+
+        <div class="class-grid" id="class-container">
+          <!-- Class cards injected dynamically -->
+        </div>
+
+        <div class="card-title" style="margin-top: 2rem; margin-bottom: 0.75rem;">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          Live Training Monitor
+        </div>
+        <div style="font-size: 0.9rem; color: var(--accent-cyan);" id="status-message">Idle - Ready to add objects & train.</div>
+
+        <div class="terminal-window" id="terminal-logs">
+          [System Ready] Select Object or Path, type custom names, and click Train Model.
+        </div>
+
+        <img src="/plots/object_vision_training_curves.png" alt="Training Curves" class="curve-img" id="curve-img" onerror="this.style.display='none';">
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function fetchSummary() {
+      try {
+        const res = await fetch('/api/dataset_summary');
+        const data = await res.json();
+        if (data.status === 'success') {
+          document.getElementById('total-classes').innerText = data.classes_count;
+          const container = document.getElementById('class-container');
+          container.innerHTML = '';
+          
+          data.summary.forEach(item => {
+            let tagClass = 'tag-crowded';
+            if (item.token === 'HAZARDOUS_ZONE') tagClass = 'tag-hazard';
+            if (item.token === 'OPEN_WAREHOUSE') tagClass = 'tag-open';
+
+            const card = document.createElement('div');
+            card.className = 'class-item';
+            card.innerHTML = `
+              <div class="class-name">${item.name.replace('_', ' ')}</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Type: ${item.type.toUpperCase()}</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">${item.samples} samples</div>
+              <span class="token-tag ${tagClass}">${item.token}</span>
+            `;
+            container.appendChild(card);
+          });
+        }
+      } catch (err) {
+        console.error("Error fetching summary:", err);
+      }
+    }
+
+    async function pollStatus() {
+      try {
+        const res = await fetch('/api/training_status');
+        const data = await res.json();
+        document.getElementById('status-message').innerText = data.status_message;
+        
+        if (data.logs && data.logs.length > 0) {
+          const terminal = document.getElementById('terminal-logs');
+          terminal.innerHTML = data.logs.map(l => `> ${l}`).join('<br>');
+          terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        if (data.is_training) {
+          document.getElementById('btn-submit').disabled = true;
+          document.getElementById('btn-submit').innerText = "⏳ Training Model in Progress...";
+        } else {
+          document.getElementById('btn-submit').disabled = false;
+          document.getElementById('btn-submit').innerText = "⚡ Create Dataset Folders & Train Model";
+          // Refresh training curves image
+          document.getElementById('curve-img').src = '/plots/object_vision_training_curves.png?t=' + new Date().getTime();
+          document.getElementById('curve-img').style.display = 'block';
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    document.getElementById('train-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const catType = document.querySelector('input[name="category_type"]:checked').value;
+      const rawNames = document.getElementById('object_names').value;
+      const token = document.getElementById('vla_token').value;
+      const samples = document.getElementById('samples_per_class').value;
+      const epochs = document.getElementById('epochs').value;
+
+      if (!rawNames.trim()) {
+        alert('Please type at least one object or path name!');
+        return;
+      }
+
+      document.getElementById('btn-submit').disabled = true;
+
+      try {
+        const res = await fetch('/api/create_and_train', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category_type: catType,
+            object_names: rawNames,
+            vla_token: token,
+            samples_per_class: samples,
+            epochs: epochs
+          })
+        });
+        const result = await res.json();
+        if (result.status === 'success') {
+          document.getElementById('object_names').value = '';
+          fetchSummary();
+        } else {
+          alert(result.message);
+          document.getElementById('btn-submit').disabled = false;
+        }
+      } catch (err) {
+        alert('Error initiating training: ' + err);
+        document.getElementById('btn-submit').disabled = false;
+      }
+    });
+
+    fetchSummary();
+    setInterval(fetchSummary, 5000);
+    setInterval(pollStatus, 2000);
+  </script>
+</body>
+</html>

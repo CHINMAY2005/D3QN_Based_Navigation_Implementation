@@ -1,4 +1,7 @@
+flask>=3.0.0
 torch
+torchvision
+opencv-python
+pillow
 numpy
 matplotlib
-pillow

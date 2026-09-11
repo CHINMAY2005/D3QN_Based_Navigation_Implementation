@@ -1,0 +1,35 @@
+{
+  "classes": [
+    "chair",
+    "clear_path",
+    "door",
+    "human",
+    "laptop",
+    "phone",
+    "shoe",
+    "wall",
+    "water_bottle"
+  ],
+  "class_to_token": {
+    "human": "HAZARDOUS_ZONE",
+    "wall": "CROWDED_ROOM",
+    "chair": "CROWDED_ROOM",
+    "door": "OPEN_WAREHOUSE",
+    "shoe": "CROWDED_ROOM",
+    "phone": "CROWDED_ROOM",
+    "clear_path": "OPEN_WAREHOUSE",
+    "laptop": "CROWDED_ROOM",
+    "water_bottle": "CROWDED_ROOM"
+  },
+  "class_types": {
+    "human": "object",
+    "wall": "object",
+    "chair": "object",
+    "door": "path",
+    "shoe": "object",
+    "phone": "object",
+    "clear_path": "path",
+    "laptop": "object",
+    "water_bottle": "object"
+  }
+}

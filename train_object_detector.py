@@ -22,20 +22,23 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 
-OBJECT_CLASSES = [
-    "human", "wall", "chair", "door",
-    "shoe", "phone", "clear_path"
-]
-
-CLASS_TO_TOKEN = {
-    "human": "HAZARDOUS_ZONE",
-    "wall": "CROWDED_ROOM",
-    "chair": "CROWDED_ROOM",
-    "shoe": "CROWDED_ROOM",
-    "phone": "CROWDED_ROOM",
-    "door": "OPEN_WAREHOUSE",
-    "clear_path": "OPEN_WAREHOUSE"
-}
+# Load Dynamic Object Classes & Token Mappings
+try:
+    from dynamic_dataset_manager import load_class_config
+    cfg = load_class_config()
+    OBJECT_CLASSES = cfg.get("classes", ["human", "wall", "chair", "door", "shoe", "phone", "clear_path"])
+    CLASS_TO_TOKEN = cfg.get("class_to_token", {})
+except Exception:
+    OBJECT_CLASSES = ["human", "wall", "chair", "door", "shoe", "phone", "clear_path"]
+    CLASS_TO_TOKEN = {
+        "human": "HAZARDOUS_ZONE",
+        "wall": "CROWDED_ROOM",
+        "chair": "CROWDED_ROOM",
+        "shoe": "CROWDED_ROOM",
+        "phone": "CROWDED_ROOM",
+        "door": "OPEN_WAREHOUSE",
+        "clear_path": "OPEN_WAREHOUSE"
+    }
 
 class ObjectAwareVLAVisionEncoder(nn.Module):
     def __init__(self, num_objects: int = 7, semantic_dim: int = 64):
@@ -131,9 +134,18 @@ class DiverseHumanPhoneObjectDataset(torch.utils.data.Dataset):
 
 
 def train_rigorous_object_detector(epochs=20, batch_size=32, lr=1e-3):
+    global OBJECT_CLASSES, CLASS_TO_TOKEN
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("plots", exist_ok=True)
     
+    try:
+        from dynamic_dataset_manager import load_class_config
+        cfg = load_class_config()
+        OBJECT_CLASSES = cfg.get("classes", OBJECT_CLASSES)
+        CLASS_TO_TOKEN = cfg.get("class_to_token", CLASS_TO_TOKEN)
+    except Exception:
+        pass
+        
     dataset = DiverseHumanPhoneObjectDataset(augment=True)
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size

@@ -31,21 +31,23 @@ class VLAGuard:
             2: "HAZARDOUS_ZONE"
         }
         
-        # 7 Target Classes (Glass, Mouse & Mirror removed)
-        self.object_classes = [
-            "human", "wall", "chair", "door",
-            "shoe", "phone", "clear_path"
-        ]
-        
-        self.class_to_token = {
-            "human": "HAZARDOUS_ZONE",
-            "wall": "CROWDED_ROOM",
-            "chair": "CROWDED_ROOM",
-            "shoe": "CROWDED_ROOM",
-            "phone": "CROWDED_ROOM",
-            "door": "OPEN_WAREHOUSE",
-            "clear_path": "OPEN_WAREHOUSE"
-        }
+        # Load Dynamic Object Classes & Token Mappings
+        try:
+            from dynamic_dataset_manager import load_class_config
+            cfg = load_class_config()
+            self.object_classes = cfg.get("classes", ["human", "wall", "chair", "door", "shoe", "phone", "clear_path"])
+            self.class_to_token = cfg.get("class_to_token", {})
+        except Exception:
+            self.object_classes = ["human", "wall", "chair", "door", "shoe", "phone", "clear_path"]
+            self.class_to_token = {
+                "human": "HAZARDOUS_ZONE",
+                "wall": "CROWDED_ROOM",
+                "chair": "CROWDED_ROOM",
+                "shoe": "CROWDED_ROOM",
+                "phone": "CROWDED_ROOM",
+                "door": "OPEN_WAREHOUSE",
+                "clear_path": "OPEN_WAREHOUSE"
+            }
         
         np.random.seed(100)
         self.fallback_embeddings = {
