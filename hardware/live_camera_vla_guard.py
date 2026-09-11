@@ -15,6 +15,7 @@ import os
 import time
 import csv
 import random
+import argparse
 import numpy as np
 import torch
 import cv2
@@ -25,6 +26,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla_guard import VLAGuard
 from dueling_dqn import VLAGuardedDuelingDQN
+from dynamic_dataset_manager import add_custom_class, get_dataset_summary, load_class_config
+from train_object_detector import train_rigorous_object_detector
 
 class LiveCameraVLAGuardController:
     def __init__(self, camera_id: int = 0, model_path: str = "checkpoints/best_model.pth",
@@ -32,13 +35,14 @@ class LiveCameraVLAGuardController:
                  log_data: bool = True):
         
         self.camera_id = camera_id
+        self.object_model_path = object_model_path
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.log_data = log_data
         
         print(f"\n--- Initializing Object-Aware Live Camera VLA Guard (Device: {self.device}) ---", flush=True)
         
         # 1. Initialize Object-Aware VLA Guard
-        self.vla_guard = VLAGuard(semantic_dim=64, object_model_path=object_model_path)
+        self.reload_vla_guard()
         
         # 2. Initialize low-level VLA-Guarded D3QN Policy
         self.d3qn_policy = VLAGuardedDuelingDQN(state_dim=28, action_dim=5, semantic_dim=64).to(self.device)
@@ -70,7 +74,42 @@ class LiveCameraVLAGuardController:
             3: [0.00, 0.50],   # Pivot Left Hard
             4: [0.00, -0.50]   # Pivot Right Hard
         }
+
+    def reload_vla_guard(self):
+        """Hot-reloads VLAGuard and dynamic object classes into memory."""
+        self.vla_guard = VLAGuard(semantic_dim=64, object_model_path=self.object_model_path)
+        summary = get_dataset_summary()
+        print(f"VLAGuard Hot-Reloaded: Active Classes ({len(summary)}): {[s['name'] for s in summary]}")
+
+    def add_custom_category_interactive(self, category_type="object", custom_name=None, epochs=10):
+        """Creates dataset folder, seeds images, retrains PyTorch model, and hot-reloads weights."""
+        print(f"\n=======================================================", flush=True)
+        print(f"    ADD CUSTOM {category_type.upper()} & RETRAIN MODEL    ", flush=True)
+        print(f"=======================================================", flush=True)
         
+        if not custom_name:
+            prompt_str = f"Enter Custom {category_type.upper()} Name(s) (e.g. laptop, desk): "
+            try:
+                custom_name = input(prompt_str).strip()
+            except Exception:
+                custom_name = ""
+                
+        names_list = [n.strip() for n in custom_name.replace("\n", ",").split(",") if n.strip()]
+        if not names_list:
+            print("No valid name entered. Resuming stream...", flush=True)
+            return
+            
+        for name in names_list:
+            c_name, token, count = add_custom_class(name, category_type=category_type, samples_count=50)
+            print(f"  -> Created Directory: Datasets/Object_Obstacles/{c_name}/ ({count} samples)", flush=True)
+            
+        print(f"\n--- Retraining PyTorch Object Vision Model ({epochs} Epochs) ---", flush=True)
+        train_rigorous_object_detector(epochs=epochs, batch_size=32)
+        
+        print("\nHot-reloading newly trained model into Live Camera Controller...", flush=True)
+        self.reload_vla_guard()
+        print(f"Success! Model updated with new {category_type.upper()} category.\n", flush=True)
+
     def get_dataset_fallback_frames(self, dataset_dir="Datasets/MIT Indoor Scene Recognition.v5-resized416by416_70-20-10split.folder/valid"):
         frames = []
         if os.path.exists(dataset_dir):
@@ -87,12 +126,30 @@ class LiveCameraVLAGuardController:
         return frames
 
     def start_live_stream(self, show_window: bool = True, max_frames: int = None, save_video: bool = False):
-        cap = cv2.VideoCapture(self.camera_id)
-        use_hardware_camera = cap.isOpened()
+        cap = None
+        use_hardware_camera = False
         
+        # Safely attempt opening hardware camera (indices 0 and 1)
+        for dev_idx in [self.camera_id, 0, 1]:
+            try:
+                test_cap = cv2.VideoCapture(dev_idx)
+                if test_cap is not None and test_cap.isOpened():
+                    ret, test_frame = test_cap.read()
+                    if ret and test_frame is not None:
+                        cap = test_cap
+                        self.camera_id = dev_idx
+                        use_hardware_camera = True
+                        break
+                    else:
+                        test_cap.release()
+                elif test_cap is not None:
+                    test_cap.release()
+            except Exception:
+                pass
+
         if not use_hardware_camera:
-            print(f"Notice: Physical camera hardware (Camera ID: {self.camera_id}) not detected.", flush=True)
-            print("Switching to Continuous Dataset Camera Feed Stream Mode...", flush=True)
+            print(f"Notice: Physical hardware webcam (/dev/video*) not currently detected.", flush=True)
+            print("Switching to Continuous Dataset Real-Time Live Feed Stream Mode...", flush=True)
             fallback_frames = self.get_dataset_fallback_frames()
             if not fallback_frames:
                 print("No fallback frames found in Datasets directory.", flush=True)
@@ -100,7 +157,12 @@ class LiveCameraVLAGuardController:
         else:
             print(f"\nLive Hardware Camera Stream Started (Camera ID: {self.camera_id}).", flush=True)
 
-        print(f"\n--- Running Object-Aware Real-Time OpenCV VLA Guard Stream (Press 'q' or Ctrl+C to exit) ---", flush=True)
+        print(f"\n--- Running Object-Aware Real-Time OpenCV VLA Guard Stream ---", flush=True)
+        print("  [KEYBOARD CONTROLS]:", flush=True)
+        print("    Press 'O' : Add Custom Object (Obstacle/Hazard) & Retrain", flush=True)
+        print("    Press 'P' : Add Custom Path (Clear Passage) & Retrain", flush=True)
+        print("    Press 'T' : Trigger Model Retraining across all folders", flush=True)
+        print("    Press 'Q' : Quit Stream\n", flush=True)
         
         video_writer = None
         if save_video:
@@ -169,7 +231,7 @@ class LiveCameraVLAGuardController:
                 }
                 hud_color = color_map.get(cached_token, (255, 255, 255))
                 
-                # Top HUD Box
+                # Top HUD Box (Object & Action Telemetry)
                 cv2.rectangle(frame, (10, 10), (630, 95), (15, 15, 15), -1)
                 cv2.rectangle(frame, (10, 10), (630, 95), hud_color, 2)
                 
@@ -178,15 +240,37 @@ class LiveCameraVLAGuardController:
                 cv2.putText(frame, f"D3QN Action {action_id} -> Linear V: {v_cmd:.2f} m/s | Angular W: {w_cmd:.2f} rad/s", 
                             (20, 78), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 1)
                             
+                # Bottom HUD Box (Interactive Key Controls Bar)
+                cv2.rectangle(frame, (10, 425), (630, 470), (20, 20, 30), -1)
+                cv2.rectangle(frame, (10, 425), (630, 470), (100, 100, 255), 1)
+                cv2.putText(frame, "CONTROLS: [O] Add Object  |  [P] Add Path  |  [T] Retrain  |  [Q] Quit", 
+                            (20, 452), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (230, 230, 250), 1)
+                            
                 if video_writer is not None:
                     video_writer.write(frame)
                     
-                if show_window and use_hardware_camera:
-                    cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
+                if show_window:
+                    try:
+                        cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
+                        key = cv2.waitKey(1) & 0xFF
                         
-                print(f"Frame {frame_count:04d} | Object: [{cached_object.upper():10s}] | Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
+                        if key == ord('q') or key == 27:
+                            break
+                        elif key == ord('o') or key == ord('O'):
+                            cv2.destroyAllWindows()
+                            self.add_custom_category_interactive(category_type="object", epochs=10)
+                        elif key == ord('p') or key == ord('P'):
+                            cv2.destroyAllWindows()
+                            self.add_custom_category_interactive(category_type="path", epochs=10)
+                        elif key == ord('t') or key == ord('T'):
+                            cv2.destroyAllWindows()
+                            print("\n--- Retraining PyTorch Object Vision Encoder Model ---", flush=True)
+                            train_rigorous_object_detector(epochs=10, batch_size=32)
+                            self.reload_vla_guard()
+                    except Exception as e:
+                        pass
+                        
+                print(f"Frame {frame_count:04d} | Object: [{cached_object.upper():12s}] | Token: [{cached_token:15s}] | Velocity: v={v_cmd:.2f}m/s, w={w_cmd:.2f}rad/s", flush=True)
                 
                 if not use_hardware_camera:
                     time.sleep(0.1)
@@ -202,5 +286,35 @@ class LiveCameraVLAGuardController:
             print("Camera stream closed cleanly.", flush=True)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Live Camera Feed VLA Guard Controller with Object & Path Options")
+    parser.add_argument("--add-object", type=str, default=None, help="Add custom object name and retrain before launching stream")
+    parser.add_argument("--add-path", type=str, default=None, help="Add custom path name and retrain before launching stream")
+    parser.add_argument("--interactive", action="store_true", help="Prompt to add custom object/path before starting live feed")
+    parser.add_argument("--epochs", type=int, default=10, help="Training epochs for custom object addition")
+    
+    args = parser.parse_args()
+    
     controller = LiveCameraVLAGuardController(camera_id=0, log_data=True)
+    
+    if args.add_object:
+        controller.add_custom_category_interactive(category_type="object", custom_name=args.add_object, epochs=args.epochs)
+    elif args.add_path:
+        controller.add_custom_category_interactive(category_type="path", custom_name=args.add_path, epochs=args.epochs)
+    elif args.interactive:
+        print("\n=======================================================")
+        print("    LIVE CAMERA VLA GUARD - CUSTOM CATEGORY LAUNCHER   ")
+        print("=======================================================")
+        print("1. Add New Custom OBJECT (Obstacle/Hazard)")
+        print("2. Add New Custom PATH (Clear Passage)")
+        print("3. Start Live Camera Feed Stream directly")
+        try:
+            choice = input("\nSelect Option [1-3]: ").strip()
+            if choice == "1":
+                controller.add_custom_category_interactive(category_type="object", epochs=args.epochs)
+            elif choice == "2":
+                controller.add_custom_category_interactive(category_type="path", epochs=args.epochs)
+        except Exception:
+            pass
+
     controller.start_live_stream(show_window=True, max_frames=None, save_video=False)
+
