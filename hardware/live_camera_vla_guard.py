@@ -290,20 +290,26 @@ class LiveCameraVLAGuardController:
                             if key in [13, 10]:  # ENTER
                                 typed_name = input_buffer.strip().lower().replace(" ", "_")
                                 if typed_name:
-                                    status_msg = f"Retraining PyTorch Model on '{typed_name}'..."
-                                    status_msg_expiry = curr_time + 10.0
-                                    
-                                    # Show progress frame
-                                    cv2.putText(frame, "RETRAIN IN PROGRESS...", (180, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-                                    cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
-                                    cv2.waitKey(1)
+                                    status_msg = f"Retraining Model on '{typed_name}'..."
+                                    status_msg_expiry = curr_time + 15.0
                                     
                                     add_custom_class(typed_name, category_type=input_type, samples_count=50)
-                                    train_rigorous_object_detector(epochs=10, batch_size=32)
-                                    self.reload_vla_guard()
                                     
-                                    status_msg = f"Success! Registered '{typed_name}' [{input_type.upper()}]"
-                                    status_msg_expiry = curr_time + 5.0
+                                    def bg_train_job():
+                                        nonlocal status_msg, status_msg_expiry
+                                        try:
+                                            train_rigorous_object_detector(epochs=5, batch_size=64)
+                                            self.reload_vla_guard()
+                                            status_msg = f"Success! Registered '{typed_name}' [{input_type.upper()}]"
+                                            status_msg_expiry = time.time() + 5.0
+                                        except Exception as err:
+                                            status_msg = f"Training error: {err}"
+                                            status_msg_expiry = time.time() + 5.0
+
+                                    import threading
+                                    t = threading.Thread(target=bg_train_job, daemon=True)
+                                    t.start()
+                                    
                                 is_input_mode = False
                                 input_buffer = ""
                             elif key == 27:  # ESC
@@ -328,11 +334,22 @@ class LiveCameraVLAGuardController:
                                 input_buffer = ""
                             elif key == ord('t') or key == ord('T'):
                                 status_msg = "Retraining PyTorch Model..."
-                                status_msg_expiry = curr_time + 8.0
-                                train_rigorous_object_detector(epochs=10, batch_size=32)
-                                self.reload_vla_guard()
-                                status_msg = "Model Retrained Successfully!"
-                                status_msg_expiry = curr_time + 4.0
+                                status_msg_expiry = curr_time + 15.0
+                                
+                                def bg_retrain():
+                                    nonlocal status_msg, status_msg_expiry
+                                    try:
+                                        train_rigorous_object_detector(epochs=5, batch_size=64)
+                                        self.reload_vla_guard()
+                                        status_msg = "Model Retrained Successfully!"
+                                        status_msg_expiry = time.time() + 5.0
+                                    except Exception as err:
+                                        status_msg = f"Retrain error: {err}"
+                                        status_msg_expiry = time.time() + 5.0
+
+                                import threading
+                                t = threading.Thread(target=bg_retrain, daemon=True)
+                                t.start()
                     except Exception as e:
                         pass
                         
