@@ -178,6 +178,13 @@ class LiveCameraVLAGuardController:
         cached_emb = np.zeros(64, dtype=np.float32)
         session_timestamp = int(time.time())
         
+        # On-Screen Input & Notification Overlay State
+        is_input_mode = False
+        input_type = "object"  # "object" or "path"
+        input_buffer = ""
+        status_msg = ""
+        status_msg_expiry = 0.0
+        
         try:
             while True:
                 if max_frames is not None and frame_count >= max_frames:
@@ -195,7 +202,7 @@ class LiveCameraVLAGuardController:
                 curr_time = time.time()
                 
                 # Asynchronous Object & Context Inference (2 Hz)
-                if curr_time - last_vla_update > 0.3 or not use_hardware_camera:
+                if not is_input_mode and (curr_time - last_vla_update > 0.3 or not use_hardware_camera):
                     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     pil_img = Image.fromarray(rgb_frame)
                     
@@ -243,9 +250,34 @@ class LiveCameraVLAGuardController:
                 # Bottom HUD Box (Interactive Key Controls Bar)
                 cv2.rectangle(frame, (10, 425), (630, 470), (20, 20, 30), -1)
                 cv2.rectangle(frame, (10, 425), (630, 470), (100, 100, 255), 1)
-                cv2.putText(frame, "CONTROLS: [O] Add Object  |  [P] Add Path  |  [T] Retrain  |  [Q] Quit", 
-                            (20, 452), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (230, 230, 250), 1)
+                
+                if status_msg and curr_time < status_msg_expiry:
+                    cv2.putText(frame, f"STATUS: {status_msg}", (20, 452), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (0, 255, 255), 2)
+                else:
+                    cv2.putText(frame, "CONTROLS: [O] Add Object  |  [P] Add Path  |  [T] Retrain  |  [Q] Quit", 
+                                (20, 452), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (230, 230, 250), 1)
                             
+                # Render On-Screen Input Overlay when in typing mode
+                if is_input_mode:
+                    overlay = frame.copy()
+                    cv2.rectangle(overlay, (40, 140), (600, 330), (15, 20, 35), -1)
+                    cv2.addWeighted(overlay, 0.88, frame, 0.12, 0, frame)
+                    
+                    border_c = (0, 215, 255) if input_type == "object" else (0, 255, 0)
+                    cv2.rectangle(frame, (40, 140), (600, 330), border_c, 2)
+                    
+                    header_txt = f"TYPE NEW CUSTOM {input_type.upper()} NAME"
+                    cv2.putText(frame, header_txt, (60, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.65, border_c, 2)
+                    
+                    cv2.rectangle(frame, (60, 198), (580, 255), (30, 35, 55), -1)
+                    cv2.rectangle(frame, (60, 198), (580, 255), (150, 150, 180), 1)
+                    
+                    cursor_str = "_" if (int(curr_time * 2.5) % 2 == 0) else " "
+                    cv2.putText(frame, f"> {input_buffer}{cursor_str}", (75, 236), cv2.FONT_HERSHEY_SIMPLEX, 0.68, (255, 255, 255), 2)
+                    
+                    cv2.putText(frame, "Press [ENTER] to Create Folder & Retrain  |  [ESC] Cancel", 
+                                (60, 298), cv2.FONT_HERSHEY_SIMPLEX, 0.46, (200, 200, 210), 1)
+
                 if video_writer is not None:
                     video_writer.write(frame)
                     
@@ -254,19 +286,53 @@ class LiveCameraVLAGuardController:
                         cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
                         key = cv2.waitKey(1) & 0xFF
                         
-                        if key == ord('q') or key == 27:
-                            break
-                        elif key == ord('o') or key == ord('O'):
-                            cv2.destroyAllWindows()
-                            self.add_custom_category_interactive(category_type="object", epochs=10)
-                        elif key == ord('p') or key == ord('P'):
-                            cv2.destroyAllWindows()
-                            self.add_custom_category_interactive(category_type="path", epochs=10)
-                        elif key == ord('t') or key == ord('T'):
-                            cv2.destroyAllWindows()
-                            print("\n--- Retraining PyTorch Object Vision Encoder Model ---", flush=True)
-                            train_rigorous_object_detector(epochs=10, batch_size=32)
-                            self.reload_vla_guard()
+                        if is_input_mode:
+                            if key in [13, 10]:  # ENTER
+                                typed_name = input_buffer.strip().lower().replace(" ", "_")
+                                if typed_name:
+                                    status_msg = f"Retraining PyTorch Model on '{typed_name}'..."
+                                    status_msg_expiry = curr_time + 10.0
+                                    
+                                    # Show progress frame
+                                    cv2.putText(frame, "RETRAIN IN PROGRESS...", (180, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                                    cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
+                                    cv2.waitKey(1)
+                                    
+                                    add_custom_class(typed_name, category_type=input_type, samples_count=50)
+                                    train_rigorous_object_detector(epochs=10, batch_size=32)
+                                    self.reload_vla_guard()
+                                    
+                                    status_msg = f"Success! Registered '{typed_name}' [{input_type.upper()}]"
+                                    status_msg_expiry = curr_time + 5.0
+                                is_input_mode = False
+                                input_buffer = ""
+                            elif key == 27:  # ESC
+                                is_input_mode = False
+                                input_buffer = ""
+                            elif key in [8, 127, 255]:  # BACKSPACE
+                                input_buffer = input_buffer[:-1]
+                            elif 32 <= key <= 126:  # ASCII CHARS
+                                char = chr(key)
+                                if char.isalnum() or char in ['_', ' ', '-']:
+                                    input_buffer += char
+                        else:
+                            if key == ord('q') or key == 27:
+                                break
+                            elif key == ord('o') or key == ord('O'):
+                                is_input_mode = True
+                                input_type = "object"
+                                input_buffer = ""
+                            elif key == ord('p') or key == ord('P'):
+                                is_input_mode = True
+                                input_type = "path"
+                                input_buffer = ""
+                            elif key == ord('t') or key == ord('T'):
+                                status_msg = "Retraining PyTorch Model..."
+                                status_msg_expiry = curr_time + 8.0
+                                train_rigorous_object_detector(epochs=10, batch_size=32)
+                                self.reload_vla_guard()
+                                status_msg = "Model Retrained Successfully!"
+                                status_msg_expiry = curr_time + 4.0
                     except Exception as e:
                         pass
                         
