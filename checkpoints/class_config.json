@@ -1,5 +1,6 @@
 {
   "classes": [
+    "backpack",
     "chair",
     "clear_path",
     "door",
@@ -19,7 +20,8 @@
     "phone": "CROWDED_ROOM",
     "clear_path": "OPEN_WAREHOUSE",
     "laptop": "CROWDED_ROOM",
-    "water_bottle": "CROWDED_ROOM"
+    "water_bottle": "CROWDED_ROOM",
+    "backpack": "CROWDED_ROOM"
   },
   "class_types": {
     "human": "object",
@@ -30,6 +32,7 @@
     "phone": "object",
     "clear_path": "path",
     "laptop": "object",
-    "water_bottle": "object"
+    "water_bottle": "object",
+    "backpack": "object"
   }
 }

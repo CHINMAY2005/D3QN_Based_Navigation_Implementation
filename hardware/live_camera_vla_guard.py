@@ -284,72 +284,74 @@ class LiveCameraVLAGuardController:
                 if show_window:
                     try:
                         cv2.imshow("Object-Aware VLA D3QN Live Camera Stream", frame)
-                        key = cv2.waitKey(1) & 0xFF
-                        
-                        if is_input_mode:
-                            if key in [13, 10]:  # ENTER
-                                typed_name = input_buffer.strip().lower().replace(" ", "_")
-                                if typed_name:
-                                    status_msg = f"Retraining Model on '{typed_name}'..."
+                        raw_key = cv2.waitKey(1)
+                        if raw_key != -1:
+                            key = raw_key & 0xFF
+                            
+                            if is_input_mode:
+                                if key in [13, 10]:  # ENTER
+                                    typed_name = input_buffer.strip().lower().replace(" ", "_")
+                                    if typed_name:
+                                        status_msg = f"Retraining Model on '{typed_name}'..."
+                                        status_msg_expiry = curr_time + 15.0
+                                        
+                                        add_custom_class(typed_name, category_type=input_type, samples_count=50)
+                                        
+                                        def bg_train_job():
+                                            nonlocal status_msg, status_msg_expiry
+                                            try:
+                                                train_rigorous_object_detector(epochs=5, batch_size=64)
+                                                self.reload_vla_guard()
+                                                status_msg = f"Success! Registered '{typed_name}' [{input_type.upper()}]"
+                                                status_msg_expiry = time.time() + 5.0
+                                            except Exception as err:
+                                                status_msg = f"Training error: {err}"
+                                                status_msg_expiry = time.time() + 5.0
+
+                                        import threading
+                                        t = threading.Thread(target=bg_train_job, daemon=True)
+                                        t.start()
+                                        
+                                    is_input_mode = False
+                                    input_buffer = ""
+                                elif key == 27:  # ESC
+                                    is_input_mode = False
+                                    input_buffer = ""
+                                elif raw_key in [8, 127, 65288, 16777219] or key in [8, 127]:  # BACKSPACE
+                                    input_buffer = input_buffer[:-1]
+                                elif 32 <= key <= 126:  # ASCII CHARS
+                                    char = chr(key)
+                                    if char.isalnum() or char in ['_', ' ', '-']:
+                                        input_buffer += char
+                            else:
+                                if key == ord('q') or key == 27:
+                                    break
+                                elif key == ord('o') or key == ord('O'):
+                                    is_input_mode = True
+                                    input_type = "object"
+                                    input_buffer = ""
+                                elif key == ord('p') or key == ord('P'):
+                                    is_input_mode = True
+                                    input_type = "path"
+                                    input_buffer = ""
+                                elif key == ord('t') or key == ord('T'):
+                                    status_msg = "Retraining PyTorch Model..."
                                     status_msg_expiry = curr_time + 15.0
                                     
-                                    add_custom_class(typed_name, category_type=input_type, samples_count=50)
-                                    
-                                    def bg_train_job():
+                                    def bg_retrain():
                                         nonlocal status_msg, status_msg_expiry
                                         try:
                                             train_rigorous_object_detector(epochs=5, batch_size=64)
                                             self.reload_vla_guard()
-                                            status_msg = f"Success! Registered '{typed_name}' [{input_type.upper()}]"
+                                            status_msg = "Model Retrained Successfully!"
                                             status_msg_expiry = time.time() + 5.0
                                         except Exception as err:
-                                            status_msg = f"Training error: {err}"
+                                            status_msg = f"Retrain error: {err}"
                                             status_msg_expiry = time.time() + 5.0
 
                                     import threading
-                                    t = threading.Thread(target=bg_train_job, daemon=True)
+                                    t = threading.Thread(target=bg_retrain, daemon=True)
                                     t.start()
-                                    
-                                is_input_mode = False
-                                input_buffer = ""
-                            elif key == 27:  # ESC
-                                is_input_mode = False
-                                input_buffer = ""
-                            elif key in [8, 127, 255]:  # BACKSPACE
-                                input_buffer = input_buffer[:-1]
-                            elif 32 <= key <= 126:  # ASCII CHARS
-                                char = chr(key)
-                                if char.isalnum() or char in ['_', ' ', '-']:
-                                    input_buffer += char
-                        else:
-                            if key == ord('q') or key == 27:
-                                break
-                            elif key == ord('o') or key == ord('O'):
-                                is_input_mode = True
-                                input_type = "object"
-                                input_buffer = ""
-                            elif key == ord('p') or key == ord('P'):
-                                is_input_mode = True
-                                input_type = "path"
-                                input_buffer = ""
-                            elif key == ord('t') or key == ord('T'):
-                                status_msg = "Retraining PyTorch Model..."
-                                status_msg_expiry = curr_time + 15.0
-                                
-                                def bg_retrain():
-                                    nonlocal status_msg, status_msg_expiry
-                                    try:
-                                        train_rigorous_object_detector(epochs=5, batch_size=64)
-                                        self.reload_vla_guard()
-                                        status_msg = "Model Retrained Successfully!"
-                                        status_msg_expiry = time.time() + 5.0
-                                    except Exception as err:
-                                        status_msg = f"Retrain error: {err}"
-                                        status_msg_expiry = time.time() + 5.0
-
-                                import threading
-                                t = threading.Thread(target=bg_retrain, daemon=True)
-                                t.start()
                     except Exception as e:
                         pass
                         
